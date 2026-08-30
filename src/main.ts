@@ -33,6 +33,9 @@ let selected = 0
 let topRow = 0
 let marqueeOffset = 0
 let page: 'list' | 'article' = 'list'
+let activeArticle: Article | undefined
+let articleTextPage = 0
+let replyTextPage = 0
 let olderPageUrl: string | undefined
 let newerPageUrl: string | undefined
 let isLoadingPage = false
@@ -128,6 +131,15 @@ function marquee(text: string, width: number): string {
   return doubled.slice(start, start + width)
 }
 
+function textPage(text: string, pageNumber: number, size: number): { content: string; total: number } {
+  const total = Math.max(1, Math.ceil(text.length / size))
+  const current = Math.max(0, Math.min(total - 1, pageNumber))
+  return {
+    content: text.slice(current * size, (current + 1) * size) || '(沒有內容)',
+    total,
+  }
+}
+
 function renderRow(article: Article, index: number): string {
   const active = index === selected
   const title = active ? marquee(article.title, TITLE_WIDTH) : clip(article.title, TITLE_WIDTH)
@@ -188,12 +200,15 @@ async function openArticle(): Promise<void> {
   if (!article) return
 
   try {
-    page = 'article'
     const loaded = parseArticle(
       article,
       await getHtml(`https://www.ptt.cc${article.path}`),
     )
     articles[selected] = loaded
+    activeArticle = loaded
+    articleTextPage = 0
+    replyTextPage = 0
+    page = 'article'
     await renderArticle(loaded)
   } catch (error) {
     console.error(error)
@@ -203,6 +218,13 @@ async function openArticle(): Promise<void> {
 }
 
 async function renderArticle(article: Article): Promise<void> {
+  // Even 的單一文字框有長度限制；把本文與推文分頁，避免長文令閱讀頁無法開啟。
+  const bodyPage = textPage(article.body || '(沒有可顯示的本文)', articleTextPage, 650)
+  const replySource = (article.replies || [])
+    .map((reply) => `${reply.mark}｜${reply.author}｜${reply.time}`)
+    .join('\n') || '(沒有推文)'
+  const repliesPage = textPage(replySource, replyTextPage, 520)
+
   const title = new TextContainerProperty({
     xPosition: 8, yPosition: 6, width: 560, height: 30,
     borderWidth: 0, borderColor: 0, paddingLength: 0,
@@ -214,18 +236,15 @@ async function renderArticle(article: Article): Promise<void> {
     xPosition: 8, yPosition: 40, width: 560, height: 124,
     borderWidth: 1, borderColor: 8, paddingLength: 6,
     containerID: 3, containerName: 'article',
-    content: article.body || '(沒有可顯示的本文)',
+    content: `本文 ${articleTextPage + 1}/${bodyPage.total}\n${bodyPage.content}`,
     textColor: 3, isEventCapture: 1,
   })
-
-  const replyText = (article.replies || [])
-    .map((reply) => `${reply.mark}｜${reply.author}｜${reply.time}`)
-    .join('\n') || '(沒有推文)'
 
   const replies = new TextContainerProperty({
     xPosition: 8, yPosition: 172, width: 560, height: 108,
     borderWidth: 1, borderColor: 8, paddingLength: 6,
-    containerID: 4, containerName: 'replies', content: replyText,
+    containerID: 4, containerName: 'replies',
+    content: `推文 ${replyTextPage + 1}/${repliesPage.total}\n${repliesPage.content}`,
     textColor: 2, isEventCapture: 0,
   })
 
@@ -235,8 +254,23 @@ async function renderArticle(article: Article): Promise<void> {
   } as RebuildPageContainer)
 }
 
+async function moveArticlePage(step: number): Promise<void> {
+  if (!activeArticle) return
+  const bodyLength = (activeArticle.body || '').length
+  const replyLength = (activeArticle.replies || [])
+    .map((reply) => `${reply.mark}｜${reply.author}｜${reply.time}`)
+    .join('\n').length
+  const nextBody = Math.max(0, Math.min(Math.max(0, Math.ceil(bodyLength / 650) - 1), articleTextPage + step))
+  const nextReplies = Math.max(0, Math.min(Math.max(0, Math.ceil(replyLength / 520) - 1), replyTextPage + step))
+  if (nextBody === articleTextPage && nextReplies === replyTextPage) return
+  articleTextPage = nextBody
+  replyTextPage = nextReplies
+  await renderArticle(activeArticle)
+}
+
 async function returnToList(): Promise<void> {
   page = 'list'
+  activeArticle = undefined
   marqueeOffset = 0
   await bridge.rebuildPageContainer({
     containerTotalNum: 1,
@@ -272,7 +306,13 @@ bridge.onEvenHubEvent((event) => {
   if (!input) return
 
   if (page === 'article') {
-    if (input.eventType === OsEventTypeList.DOUBLE_CLICK_EVENT) void returnToList()
+    if (input.eventType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
+      void returnToList()
+    } else if (input.eventType === OsEventTypeList.SCROLL_TOP_EVENT) {
+      void moveArticlePage(-1)
+    } else if (input.eventType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
+      void moveArticlePage(1)
+    }
     return
   }
 
@@ -291,6 +331,10 @@ bridge.onEvenHubEvent((event) => {
     case OsEventTypeList.DOUBLE_CLICK_EVENT:
       void bridge.shutDownPageContainer(1)
       break
+    default:
+      // 部分韌體將點按回報為未列出的事件類型；在列表上一律視為開啟文章。
+      if (articles.length > 0) void openArticle()
+      else void loadBoard()
   }
 })
 
