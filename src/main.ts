@@ -17,6 +17,12 @@ type Article = {
   replies?: Reply[]
 }
 
+type BoardPage = {
+  articles: Article[]
+  olderUrl?: string
+  newerUrl?: string
+}
+
 const PROXY = 'https://cloudflare-cors-anywhere.yuyimimi.workers.dev/'
 const BOARD_URL = 'https://www.ptt.cc/bbs/Baseball/index.html'
 const ROWS = 6
@@ -27,6 +33,10 @@ let selected = 0
 let topRow = 0
 let marqueeOffset = 0
 let page: 'list' | 'article' = 'list'
+let boardUrl = BOARD_URL
+let olderPageUrl: string | undefined
+let newerPageUrl: string | undefined
+let isLoadingPage = false
 
 const bridge = await waitForEvenAppBridge()
 
@@ -52,10 +62,11 @@ async function getHtml(url: string): Promise<string> {
   return response.text()
 }
 
-function parseBoard(html: string): Article[] {
+function parseBoard(html: string, url: string): BoardPage {
   const document = new DOMParser().parseFromString(html, 'text/html')
 
-  return Array.from(document.querySelectorAll('.r-ent'))
+  // PTT 的 HTML 是舊到新排列；反轉後眼鏡上會是最新文章在最上方。
+  const articles = Array.from(document.querySelectorAll('.r-ent'))
     .map((row): Article | null => {
       const link = row.querySelector<HTMLAnchorElement>('.title a')
       const path = link?.getAttribute('href')
@@ -69,6 +80,20 @@ function parseBoard(html: string): Article[] {
       }
     })
     .filter((article): article is Article => article !== null)
+    .reverse()
+
+  const pagingLinks = Array.from(document.querySelectorAll<HTMLAnchorElement>('.btn-group-paging a'))
+  const pageLink = (label: string): string | undefined => {
+    const link = pagingLinks.find((item) => item.textContent?.includes(label))
+    const href = link?.getAttribute('href')
+    return href ? new URL(href, url).toString() : undefined
+  }
+
+  return {
+    articles,
+    olderUrl: pageLink('上頁'),
+    newerUrl: pageLink('下頁'),
+  }
 }
 
 function parseArticle(article: Article, html: string): Article {
@@ -127,8 +152,7 @@ function renderList(message?: string): void {
     containerID: 1,
     containerName: 'board',
     content: [
-      `Baseball  ${selected + 1}/${articles.length}`,
-      '    推  文章標題                      時間',
+      `Baseball ${newerPageUrl ? '' : '最新 '} ${selected + 1}/${articles.length}`,      '    推  文章標題                      時間',
       ...rows,
       '',
       '上/下滑選文章 · 按一下閱讀 · 雙擊離開',
@@ -136,18 +160,28 @@ function renderList(message?: string): void {
   }))
 }
 
-async function loadBoard(): Promise<void> {
+async function loadBoard(url = BOARD_URL, selectAt: 'top' | 'bottom' = 'top'): Promise<void> {
+  if (isLoadingPage) return
+  isLoadingPage = true
+
   try {
     renderList('正在讀取 PTT Baseball…')
-    articles = parseBoard(await getHtml(BOARD_URL))
-    selected = 0
-    topRow = 0
+    const loaded = parseBoard(await getHtml(url), url)
+    if (loaded.articles.length === 0) throw new Error('看板沒有可讀文章')
+
+    boardUrl = url
+    articles = loaded.articles
+    olderPageUrl = loaded.olderUrl
+    newerPageUrl = loaded.newerUrl
+    selected = selectAt === 'bottom' ? articles.length - 1 : 0
+    topRow = selectAt === 'bottom' ? Math.max(0, articles.length - ROWS) : 0
     marqueeOffset = 0
-    if (articles.length === 0) throw new Error('看板沒有可讀文章')
     renderList()
   } catch (error) {
     console.error(error)
     renderList('讀取 PTT 失敗\n\n請確認網路與代理服務\n\n按一下重試')
+  } finally {
+    isLoadingPage = false
   }
 }
 
@@ -213,10 +247,22 @@ async function returnToList(): Promise<void> {
   renderList()
 }
 
-function moveCursor(step: number): void {
-  const next = Math.max(0, Math.min(articles.length - 1, selected + step))
-  if (next === selected) return
-  selected = next
+async function moveCursor(step: number): Promise<void> {
+  if (isLoadingPage || articles.length === 0) return
+
+  if (step > 0 && selected === articles.length - 1) {
+    // 最新在最上方，因此列表底端的「再往下」就是讀取較舊的上頁。
+    if (olderPageUrl) await loadBoard(olderPageUrl, 'top')
+    return
+  }
+
+  if (step < 0 && selected === 0) {
+    // 列表最上端再往上，回到較新的下頁；沒有下頁就代表目前已是最新。
+    if (newerPageUrl) await loadBoard(newerPageUrl, 'bottom')
+    return
+  }
+
+  selected += step
   marqueeOffset = 0
   if (selected < topRow) topRow = selected
   if (selected >= topRow + ROWS) topRow = selected - ROWS + 1
@@ -234,10 +280,10 @@ bridge.onEvenHubEvent((event) => {
 
   switch (input.eventType) {
     case OsEventTypeList.SCROLL_TOP_EVENT:
-      moveCursor(-1)
+      void moveCursor(-1)
       break
     case OsEventTypeList.SCROLL_BOTTOM_EVENT:
-      moveCursor(1)
+      void moveCursor(1)
       break
     case OsEventTypeList.CLICK_EVENT:
     case undefined:
