@@ -223,8 +223,7 @@ async function openArticle(): Promise<void> {
     articleTextPage = 0
     replyTextPage = 0
     page = 'article'
-    const result = await renderArticle(loaded)
-    if (result !== 0) throw new Error(`閱讀頁顯示失敗：${result}`)
+    await renderArticle(loaded)
   } catch (error) {
     console.error(error)
     page = 'list'
@@ -234,7 +233,7 @@ async function openArticle(): Promise<void> {
   }
 }
 
-async function renderArticle(article: Article): Promise<number> {
+async function renderArticle(article: Article): Promise<void> {
   // Even 的單一文字框有長度限制；把本文與推文分頁，避免長文令閱讀頁無法開啟。
   const bodyPage = textPage(article.body || '(沒有可顯示的本文)', articleTextPage, 650)
   const replySource = (article.replies || [])
@@ -265,7 +264,7 @@ async function renderArticle(article: Article): Promise<number> {
     textColor: 2, isEventCapture: 0,
   })
 
-  return bridge.rebuildPageContainer({
+  await bridge.rebuildPageContainer({
     containerTotalNum: 3,
     textObject: [title, body, replies],
   } as RebuildPageContainer)
