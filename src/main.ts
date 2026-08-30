@@ -26,7 +26,9 @@ type BoardPage = {
 const PROXY = 'https://cloudflare-cors-anywhere.yuyimimi.workers.dev/'
 const BOARD_URL = 'https://www.ptt.cc/bbs/Baseball/index.html'
 const ROWS = 6
+const LIKE_WIDTH = 3
 const TITLE_WIDTH = 25
+const TIME_WIDTH = 5
 
 let articles: Article[] = []
 let selected = 0
@@ -140,10 +142,21 @@ function textPage(text: string, pageNumber: number, size: number): { content: st
   }
 }
 
+function displayLikes(value: string): string {
+  const raw = value.trim()
+  if (raw === '爆') return '爆'
+  const count = Number.parseInt(raw, 10)
+  if (Number.isFinite(count) && count > 99) return '爆'
+  return raw || '0'
+}
+
 function renderRow(article: Article, index: number): string {
   const active = index === selected
   const title = active ? marquee(article.title, TITLE_WIDTH) : clip(article.title, TITLE_WIDTH)
-  return `${active ? '>' : ' '}${article.likes.padStart(3)} ${title.padEnd(TITLE_WIDTH)} ${article.time.padStart(5)}`
+  const likes = displayLikes(article.likes).slice(0, LIKE_WIDTH).padStart(LIKE_WIDTH)
+  const time = article.time.trim().slice(-TIME_WIDTH).padStart(TIME_WIDTH)
+  // 固定每欄的空間：最左游標、三格推文數，日期永遠貼齊最右。
+  return `${active ? '>' : ' '} ${likes} ${title.padEnd(TITLE_WIDTH)} ${time}`
 }
 
 function renderList(message?: string): void {
@@ -163,7 +176,7 @@ function renderList(message?: string): void {
     containerID: 1,
     containerName: 'board',
     content: [
-      `Baseball ${newerPageUrl ? '' : '最新 '} ${selected + 1}/${articles.length}`,      '    推  文章標題                      時間',
+      `Baseball ${newerPageUrl ? '' : '最新 '} ${selected + 1}/${articles.length}`,      '   推數  文章標題                     時間',
       ...rows,
       '',
       '上/下滑選文章 · 按一下閱讀 · 雙擊離開',
@@ -200,6 +213,7 @@ async function openArticle(): Promise<void> {
   if (!article) return
 
   try {
+    renderList('正在開啟文章…')
     const loaded = parseArticle(
       article,
       await getHtml(`https://www.ptt.cc${article.path}`),
@@ -209,15 +223,18 @@ async function openArticle(): Promise<void> {
     articleTextPage = 0
     replyTextPage = 0
     page = 'article'
-    await renderArticle(loaded)
+    const result = await renderArticle(loaded)
+    if (result !== 0) throw new Error(`閱讀頁顯示失敗：${result}`)
   } catch (error) {
     console.error(error)
     page = 'list'
-    renderList('讀取文章失敗\n\n按一下回列表重試')
+    activeArticle = undefined
+    const detail = error instanceof Error ? error.message : '未知錯誤'
+    renderList(`讀取文章失敗\n${clip(detail, 28)}\n\n按一下重試`)
   }
 }
 
-async function renderArticle(article: Article): Promise<void> {
+async function renderArticle(article: Article): Promise<number> {
   // Even 的單一文字框有長度限制；把本文與推文分頁，避免長文令閱讀頁無法開啟。
   const bodyPage = textPage(article.body || '(沒有可顯示的本文)', articleTextPage, 650)
   const replySource = (article.replies || [])
@@ -248,7 +265,7 @@ async function renderArticle(article: Article): Promise<void> {
     textColor: 2, isEventCapture: 0,
   })
 
-  await bridge.rebuildPageContainer({
+  return bridge.rebuildPageContainer({
     containerTotalNum: 3,
     textObject: [title, body, replies],
   } as RebuildPageContainer)
