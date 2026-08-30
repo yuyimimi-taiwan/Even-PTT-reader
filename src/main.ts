@@ -33,7 +33,6 @@ let selected = 0
 let topRow = 0
 let marqueeOffset = 0
 let page: 'list' | 'article' = 'list'
-let boardUrl = BOARD_URL
 let olderPageUrl: string | undefined
 let newerPageUrl: string | undefined
 let isLoadingPage = false
@@ -169,7 +168,6 @@ async function loadBoard(url = BOARD_URL, selectAt: 'top' | 'bottom' = 'top'): P
     const loaded = parseBoard(await getHtml(url), url)
     if (loaded.articles.length === 0) throw new Error('看板沒有可讀文章')
 
-    boardUrl = url
     articles = loaded.articles
     olderPageUrl = loaded.olderUrl
     newerPageUrl = loaded.newerUrl
