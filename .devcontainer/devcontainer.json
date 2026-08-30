@@ -1,0 +1,12 @@
+{
+  "name": "Even Hub development",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
+  "postCreateCommand": "npm install && npm install -g @evenrealities/evenhub-cli @evenrealities/evenhub-simulator",
+  "forwardPorts": [5173],
+  "portsAttributes": {
+    "5173": {
+      "label": "Vite development server",
+      "onAutoForward": "openPreview"
+    }
+  }
+}
