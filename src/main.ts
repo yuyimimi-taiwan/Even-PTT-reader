@@ -1,11 +1,11 @@
 import {
   CreateStartUpPageContainer,
   OsEventTypeList,
-  RebuildPageContainer,
   TextContainerProperty,
   TextContainerUpgrade,
   waitForEvenAppBridge,
 } from '@evenrealities/even_hub_sdk'
+import type { RebuildPageContainer } from '@evenrealities/even_hub_sdk'
 
 type Reply = {
   mark: '推' | '噓' | '→'
