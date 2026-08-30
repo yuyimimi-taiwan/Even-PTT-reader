@@ -1,4 +1,4 @@
-name: Verify Even Hub app
+name: Build Even PTT Reader
 
 on:
   push:
@@ -15,4 +15,10 @@ jobs:
         with:
           node-version: 22
       - run: npm install
-      - run: npm run build
+      - run: npm install -g @evenrealities/evenhub-cli
+      - run: npm run pack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Even-PTT-reader
+          path: even-ptt-reader.ehpk
+          if-no-files-found: error
