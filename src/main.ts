@@ -45,14 +45,29 @@ let isLoadingPage = false
 const bridge = await waitForEvenAppBridge()
 
 const listScreen = new TextContainerProperty({
-  xPosition: 8, yPosition: 8, width: 560, height: 272,
+  xPosition: 8, yPosition: 8, width: 78, height: 272,
   borderWidth: 0, borderColor: 0, paddingLength: 0,
-  containerID: 1, containerName: 'board', content: '正在讀取 Baseball…',
+  containerID: 1, containerName: 'board', content: '讀取中…',
   isEventCapture: 1,
+})
+const listTitles = new TextContainerProperty({
+  xPosition: 90, yPosition: 8, width: 412, height: 272,
+  borderWidth: 0, borderColor: 0, paddingLength: 0,
+  containerID: 2, containerName: 'titles', content: '',
+  isEventCapture: 0,
+})
+const listDates = new TextContainerProperty({
+  xPosition: 512, yPosition: 8, width: 56, height: 272,
+  borderWidth: 0, borderColor: 0, paddingLength: 0,
+  containerID: 3, containerName: 'dates', content: '',
+  isEventCapture: 0,
 })
 
 const started = await bridge.createStartUpPageContainer(
-  new CreateStartUpPageContainer({ containerTotalNum: 1, textObject: [listScreen] }),
+  new CreateStartUpPageContainer({
+    containerTotalNum: 3,
+    textObject: [listScreen, listTitles, listDates],
+  }),
 )
 if (started !== 0) console.error('Unable to create PTT board page:', started)
 
@@ -150,37 +165,57 @@ function displayLikes(value: string): string {
   return raw || '0'
 }
 
-function renderRow(article: Article, index: number): string {
-  const active = index === selected
-  const title = active ? marquee(article.title, TITLE_WIDTH) : clip(article.title, TITLE_WIDTH)
-  const likes = displayLikes(article.likes).slice(0, LIKE_WIDTH).padStart(LIKE_WIDTH)
-  const time = article.time.trim().slice(-TIME_WIDTH).padStart(TIME_WIDTH)
-  // 固定每欄的空間：最左游標、三格推文數，日期永遠貼齊最右。
-  return `${active ? '>' : ' '} ${likes} ${title.padEnd(TITLE_WIDTH)} ${time}`
-}
-
 function renderList(message?: string): void {
   if (message) {
     void bridge.textContainerUpgrade(new TextContainerUpgrade({
       containerID: 1, containerName: 'board', content: message,
     }))
+    void bridge.textContainerUpgrade(new TextContainerUpgrade({
+      containerID: 2, containerName: 'titles', content: '',
+    }))
+    void bridge.textContainerUpgrade(new TextContainerUpgrade({
+      containerID: 3, containerName: 'dates', content: '',
+    }))
     return
   }
 
-  const rows = Array.from({ length: ROWS }, (_, row) => {
-    const article = articles[topRow + row]
-    return article ? renderRow(article, topRow + row) : ''
+  const rowArticles = Array.from({ length: ROWS }, (_, row) => articles[topRow + row])
+  const leftRows = rowArticles.map((article, row) => {
+    if (!article) return ''
+    const index = topRow + row
+    const likes = displayLikes(article.likes).slice(0, LIKE_WIDTH).padStart(LIKE_WIDTH)
+    return `${index === selected ? '>' : ' '} ${likes}`
   })
+  const titleRows = rowArticles.map((article, row) => {
+    if (!article) return ''
+    const index = topRow + row
+    return index === selected ? marquee(article.title, TITLE_WIDTH) : clip(article.title, TITLE_WIDTH)
+  })
+  const dateRows = rowArticles.map((article) =>
+    article ? article.time.trim().slice(-TIME_WIDTH).padStart(TIME_WIDTH) : '',
+  )
 
+  // 日期欄與標題欄為不同容器、固定座標；跑馬燈不會影響日期位置。
   void bridge.textContainerUpgrade(new TextContainerUpgrade({
     containerID: 1,
     containerName: 'board',
     content: [
-      `Baseball ${newerPageUrl ? '' : '最新 '} ${selected + 1}/${articles.length}`,      '   推數  文章標題                     時間',
-      ...rows,
+      newerPageUrl ? 'Baseball' : 'Baseball 最新',
+      '  推數',
+      ...leftRows,
       '',
-      '上/下滑選文章 · 按一下閱讀 · 雙擊離開',
+      '滑動選取',
     ].join('\n'),
+  }))
+  void bridge.textContainerUpgrade(new TextContainerUpgrade({
+    containerID: 2,
+    containerName: 'titles',
+    content: ['文章標題', '', ...titleRows, '', '按一下閱讀 · 雙擊離開'].join('\n'),
+  }))
+  void bridge.textContainerUpgrade(new TextContainerUpgrade({
+    containerID: 3,
+    containerName: 'dates',
+    content: ['時間', '', ...dateRows].join('\n'),
   }))
 }
 
@@ -289,8 +324,8 @@ async function returnToList(): Promise<void> {
   activeArticle = undefined
   marqueeOffset = 0
   await bridge.rebuildPageContainer({
-    containerTotalNum: 1,
-    textObject: [listScreen],
+    containerTotalNum: 3,
+    textObject: [listScreen, listTitles, listDates],
   } as RebuildPageContainer)
   renderList()
 }
@@ -318,7 +353,7 @@ async function moveCursor(step: number): Promise<void> {
 }
 
 bridge.onEvenHubEvent((event) => {
-  const input = event.textEvent
+  const input = event.textEvent ?? event.listEvent ?? event.sysEvent
   if (!input) return
 
   if (page === 'article') {
