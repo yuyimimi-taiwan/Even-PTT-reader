@@ -342,17 +342,18 @@ function textColumns(text: string): number {
   return Array.from(text).reduce((sum, char) => sum + (char.codePointAt(0)! > 0xff ? 2 : 1), 0)
 }
 
-function wrapReplyContent(content: string, maxColumns = 48): string {
+function wrapReplyContent(content: string, maxColumns = 52): string {
   const lines: string[] = []
+  const indent = '　　'
   for (const sourceLine of content.split('\n')) {
-    let current = '  '
-    let used = 2
+    let current = indent
+    let used = 4
     for (const char of sourceLine) {
       const width = char.codePointAt(0)! > 0xff ? 2 : 1
       if (used + width > maxColumns && used > 2) {
         lines.push(current)
-        current = '  '
-        used = 2
+        current = indent
+        used = 4
       }
       current += char
       used += width
@@ -363,7 +364,7 @@ function wrapReplyContent(content: string, maxColumns = 48): string {
 }
 
 function replyText(article: Article): string {
-  const totalColumns = 52
+  const totalColumns = 56
   const text = (article.replies || [])
     .map((reply) => {
       const left = `${reply.mark}｜${reply.author}`
@@ -371,7 +372,7 @@ function replyText(article: Article): string {
       const gap = ' '.repeat(Math.max(1, totalColumns - textColumns(left) - textColumns(time)))
       return [`${left}${gap}${time}`, wrapReplyContent(reply.content || '(無內容)')].join('\n')
     })
-    .join('\n\n')
+    .join('\n')
   return text || '(沒有推文)'
 }
 
