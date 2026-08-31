@@ -7,7 +7,7 @@ import {
 } from '@evenrealities/even_hub_sdk'
 import type { RebuildPageContainer } from '@evenrealities/even_hub_sdk'
 
-type Reply = { mark: string; author: string; time: string }
+type Reply = { mark: string; author: string; time: string; content: string }
 type Article = {
   likes: string
   title: string
@@ -28,7 +28,7 @@ const BOARD_URL = 'https://www.ptt.cc/bbs/Baseball/index.html'
 const ROWS = 6
 const LIKE_WIDTH = 3
 // 以中文最寬字形計算，避免任何一列自動換行。
-const TITLE_WIDTH = 16
+const TITLE_WIDTH = 20
 const TIME_WIDTH = 5
 
 let articles: Article[] = []
@@ -39,6 +39,7 @@ let page: 'list' | 'article' = 'list'
 let activeArticle: Article | undefined
 let articleTextPage = 0
 let replyTextPage = 0
+let articleView: 'body' | 'replies' = 'body'
 let olderPageUrl: string | undefined
 let newerPageUrl: string | undefined
 let isLoadingPage = false
@@ -146,6 +147,9 @@ function parseArticle(article: Article, html: string): Article {
     mark: push.querySelector('.push-tag')?.textContent?.trim() || '→',
     author: push.querySelector('.push-userid')?.textContent?.trim() || '?',
     time: push.querySelector('.push-ipdatetime')?.textContent?.trim() || '',
+    content: (push.querySelector('.push-content')?.textContent || '')
+      .replace(/^:\s*/, '')
+      .trim(),
   }))
 
   const bodyNode = content.cloneNode(true) as HTMLElement
@@ -318,6 +322,7 @@ async function openArticle(): Promise<void> {
     activeArticle = loaded
     articleTextPage = 0
     replyTextPage = 0
+    articleView = 'body'
     await renderArticle(loaded)
   } catch (error) {
     console.error(error)
@@ -334,54 +339,53 @@ async function openArticle(): Promise<void> {
   }
 }
 
+function replyText(article: Article): string {
+  const text = (article.replies || [])
+    .map((reply) => [
+      `${reply.mark}｜${reply.author}｜${reply.time}`,
+      reply.content,
+    ].filter(Boolean).join('\n'))
+    .join('\n\n')
+  return text || '(沒有推文)'
+}
+
 async function renderArticle(article: Article): Promise<void> {
-  const bodyPage = textPage(article.body || '(沒有可顯示的本文)', articleTextPage, 700)
-  const allReplies = article.replies || []
-  const repliesPerPage = 4
-  const replyTotal = Math.max(1, Math.ceil(allReplies.length / repliesPerPage))
-  const replyStart = replyTextPage * repliesPerPage
-  const replyRows = allReplies.slice(replyStart, replyStart + repliesPerPage)
+  const isBody = articleView === 'body'
+  const source = isBody ? (article.body || '(沒有可顯示的本文)') : replyText(article)
+  const pageNumber = isBody ? articleTextPage : replyTextPage
+  const contentPage = textPage(source, pageNumber, 700)
 
   const title = new TextContainerProperty({
     xPosition: 8, yPosition: 6, width: 560, height: 30,
     borderWidth: 0, borderColor: 0, paddingLength: 0,
-    containerID: 1, containerName: 'title', content: clip(article.title, 38),
+    containerID: 1, containerName: 'title', content: clip(article.title, 30),
     textColor: 4, isEventCapture: 0,
   })
-  const body = new TextContainerProperty({
-    xPosition: 8, yPosition: 40, width: 560, height: 124,
+  const panel = new TextContainerProperty({
+    xPosition: 8, yPosition: 40, width: 560, height: 240,
     borderWidth: 1, borderColor: 8, paddingLength: 6,
-    containerID: 2, containerName: 'article',
-    content: `本文 ${articleTextPage + 1}/${bodyPage.total}\n${bodyPage.content}`,
-    textColor: 3, isEventCapture: 1,
+    containerID: 2, containerName: 'reader',
+    content: `${isBody ? '本文' : '推文'} ${pageNumber + 1}/${contentPage.total}\n${contentPage.content}`,
+    textColor: isBody ? 3 : 2, isEventCapture: 1,
   })
-  const replies = new TextContainerProperty({
-    xPosition: 8, yPosition: 172, width: 560, height: 108,
-    borderWidth: 1, borderColor: 8, paddingLength: 6,
-    containerID: 3, containerName: 'replies',
-    content: [
-      `推文 ${replyTextPage + 1}/${replyTotal}`,
-      ...replyRows.map((reply) => `${reply.mark}｜${reply.author}｜${reply.time}`),
-    ].join('\n'),
-    textColor: 2, isEventCapture: 0,
-  })
-
   const rebuilt = await bridge.rebuildPageContainer({
-    containerTotalNum: 3,
-    textObject: [title, body, replies],
+    containerTotalNum: 2,
+    textObject: [title, panel],
   } as RebuildPageContainer)
   if (!rebuilt) throw new Error('閱讀頁配置被 Even 拒絕')
 }
 
 async function moveArticlePage(step: number): Promise<void> {
   if (!activeArticle) return
-  const bodyLast = Math.max(0, textPages(activeArticle.body || '', 700).length - 1)
-  const replyLast = Math.max(0, Math.ceil((activeArticle.replies || []).length / 4) - 1)
-  const nextBody = Math.max(0, Math.min(bodyLast, articleTextPage + step))
-  const nextReplies = Math.max(0, Math.min(replyLast, replyTextPage + step))
-  if (nextBody === articleTextPage && nextReplies === replyTextPage) return
-  articleTextPage = nextBody
-  replyTextPage = nextReplies
+  const source = articleView === 'body'
+    ? (activeArticle.body || '')
+    : replyText(activeArticle)
+  const last = Math.max(0, textPages(source, 700).length - 1)
+  const current = articleView === 'body' ? articleTextPage : replyTextPage
+  const next = Math.max(0, Math.min(last, current + step))
+  if (next === current) return
+  if (articleView === 'body') articleTextPage = next
+  else replyTextPage = next
   await renderArticle(activeArticle)
 }
 
@@ -435,6 +439,14 @@ bridge.onEvenHubEvent((event) => {
   if (page === 'article') {
     if (input.eventType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
       void returnToList()
+    } else if (
+      input.eventType === OsEventTypeList.CLICK_EVENT ||
+      input.eventType === undefined
+    ) {
+      articleView = articleView === 'body' ? 'replies' : 'body'
+      if (articleView === 'replies') replyTextPage = 0
+      else articleTextPage = 0
+      if (activeArticle) void renderArticle(activeArticle)
     } else if (input.eventType === OsEventTypeList.SCROLL_TOP_EVENT) {
       void moveArticlePage(-1)
     } else if (input.eventType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
