@@ -385,7 +385,7 @@ function replyPages(article: Article): ReplyPageLayout[] {
     const entryBytes = encoder.encode(entryLeft.join('\n')).length
 
     // 每頁只放完整貼文；很長的單則推文仍單獨放一頁，不與下一則混合。
-    if (leftLines.length > 0 && (bytes + entryBytes > 590 || leftLines.length + entryLeft.length > 8)) {
+    if (leftLines.length > 0 && (bytes + entryBytes > 590 || leftLines.length + entryLeft.length > 6)) {
       pages.push({ left: leftLines.join('\n'), times: timeLines.join('\n') })
       leftLines = []
       timeLines = []
