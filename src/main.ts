@@ -288,13 +288,28 @@ async function loadBoard(url = BOARD_URL, selectAt: 'top' | 'bottom' = 'top'): P
   }
 }
 
+async function renderArticleLoading(): Promise<void> {
+  const loading = new TextContainerProperty({
+    xPosition: 8, yPosition: 8, width: 560, height: 272,
+    borderWidth: 1, borderColor: 8, paddingLength: 8,
+    containerID: 1, containerName: 'loading',
+    content: '正在讀取文章…', textColor: 3, isEventCapture: 1,
+  })
+  const rebuilt = await bridge.rebuildPageContainer({
+    containerTotalNum: 1,
+    textObject: [loading],
+  } as RebuildPageContainer)
+  if (!rebuilt) throw new Error('讀取頁配置被 Even 拒絕')
+}
+
 async function openArticle(): Promise<void> {
   const article = articles[selected]
   if (!article || isOpeningArticle) return
   isOpeningArticle = true
 
   try {
-    renderList('正在開啟文章…')
+    page = 'article'
+    await renderArticleLoading()
     const loaded = parseArticle(
       article,
       await getHtml(`https://www.ptt.cc${article.path}`),
@@ -303,13 +318,16 @@ async function openArticle(): Promise<void> {
     activeArticle = loaded
     articleTextPage = 0
     replyTextPage = 0
-    page = 'article'
     await renderArticle(loaded)
   } catch (error) {
     console.error(error)
     page = 'list'
     activeArticle = undefined
     const detail = error instanceof Error ? error.message : '未知錯誤'
+    await bridge.rebuildPageContainer({
+      containerTotalNum: 5,
+      textObject: [listScreen, listTitles, listDates, listLikesNormal, listLikesDim],
+    } as RebuildPageContainer)
     renderList(`讀取文章失敗\n${clip(detail, 28)}\n\n按一下重試`)
   } finally {
     isOpeningArticle = false
@@ -343,29 +361,14 @@ async function renderArticle(article: Article): Promise<void> {
     containerID: 3, containerName: 'replies',
     content: [
       `推文 ${replyTextPage + 1}/${replyTotal}`,
-      ...replyRows.map((reply) => `     ｜${reply.author}｜${reply.time}`),
-    ].join('\n') || '(沒有推文)',
+      ...replyRows.map((reply) => `${reply.mark}｜${reply.author}｜${reply.time}`),
+    ].join('\n'),
     textColor: 2, isEventCapture: 0,
-  })
-  // 同一位置疊兩個記號欄：只有「噓」使用較暗文字色。
-  const normalMarks = new TextContainerProperty({
-    xPosition: 15, yPosition: 172, width: 35, height: 108,
-    borderWidth: 0, borderColor: 0, paddingLength: 6,
-    containerID: 4, containerName: 'reply-marks-normal',
-    content: ['', ...replyRows.map((reply) => reply.mark === '噓' ? '' : reply.mark)].join('\n'),
-    textColor: 2, isEventCapture: 0,
-  })
-  const dimMarks = new TextContainerProperty({
-    xPosition: 15, yPosition: 172, width: 35, height: 108,
-    borderWidth: 0, borderColor: 0, paddingLength: 6,
-    containerID: 5, containerName: 'reply-marks-dim',
-    content: ['', ...replyRows.map((reply) => reply.mark === '噓' ? reply.mark : '')].join('\n'),
-    textColor: 1, isEventCapture: 0,
   })
 
   const rebuilt = await bridge.rebuildPageContainer({
-    containerTotalNum: 5,
-    textObject: [title, body, replies, normalMarks, dimMarks],
+    containerTotalNum: 3,
+    textObject: [title, body, replies],
   } as RebuildPageContainer)
   if (!rebuilt) throw new Error('閱讀頁配置被 Even 拒絕')
 }
@@ -422,7 +425,7 @@ function queueCursorMove(step: -1 | 1): void {
     const finalStep = pendingScroll
     pendingScroll = undefined
     if (finalStep) void moveCursor(finalStep)
-  }, 90)
+  }, 280)
 }
 
 bridge.onEvenHubEvent((event) => {
