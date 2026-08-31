@@ -41,6 +41,7 @@ let replyTextPage = 0
 let olderPageUrl: string | undefined
 let newerPageUrl: string | undefined
 let isLoadingPage = false
+let isOpeningArticle = false
 
 const bridge = await waitForEvenAppBridge()
 
@@ -166,13 +167,30 @@ function marquee(text: string, width: number): string {
   return doubled.slice(start, start + width)
 }
 
-function textPage(text: string, pageNumber: number, size: number): { content: string; total: number } {
-  const total = Math.max(1, Math.ceil(text.length / size))
-  const current = Math.max(0, Math.min(total - 1, pageNumber))
-  return {
-    content: text.slice(current * size, (current + 1) * size) || '(沒有內容)',
-    total,
+function textPages(text: string, maxBytes: number): string[] {
+  const encoder = new TextEncoder()
+  const pages: string[] = []
+  let current = ''
+  let currentBytes = 0
+
+  for (const char of text) {
+    const bytes = encoder.encode(char).length
+    if (current && currentBytes + bytes > maxBytes) {
+      pages.push(current)
+      current = ''
+      currentBytes = 0
+    }
+    current += char
+    currentBytes += bytes
   }
+  pages.push(current || '(沒有內容)')
+  return pages
+}
+
+function textPage(text: string, pageNumber: number, maxBytes: number): { content: string; total: number } {
+  const pages = textPages(text, maxBytes)
+  const current = Math.max(0, Math.min(pages.length - 1, pageNumber))
+  return { content: pages[current], total: pages.length }
 }
 
 function displayLikes(value: string): string {
@@ -193,7 +211,7 @@ function renderTitleColumn(): void {
   void bridge.textContainerUpgrade(new TextContainerUpgrade({
     containerID: 2,
     containerName: 'titles',
-    content: ['文章標題', '', ...titleRows, '', '按一下閱讀 · 雙擊離開'].join('\n'),
+    content: ['Baseball 文章標題', ...titleRows].join('\n'),
   }))
 }
 
@@ -202,27 +220,14 @@ function renderList(message?: string): void {
     void bridge.textContainerUpgrade(new TextContainerUpgrade({
       containerID: 1, containerName: 'board', content: message,
     }))
-    void bridge.textContainerUpgrade(new TextContainerUpgrade({
-      containerID: 2, containerName: 'titles', content: '',
-    }))
-    void bridge.textContainerUpgrade(new TextContainerUpgrade({
-      containerID: 3, containerName: 'dates', content: '',
-    }))
-    void bridge.textContainerUpgrade(new TextContainerUpgrade({
-      containerID: 4, containerName: 'likes-normal', content: '',
-    }))
-    void bridge.textContainerUpgrade(new TextContainerUpgrade({
-      containerID: 5, containerName: 'likes-dim', content: '',
-    }))
+    for (const [containerID, containerName] of [[2, 'titles'], [3, 'dates'], [4, 'likes-normal'], [5, 'likes-dim']] as const) {
+      void bridge.textContainerUpgrade(new TextContainerUpgrade({ containerID, containerName, content: '' }))
+    }
     return
   }
 
   const rowArticles = Array.from({ length: ROWS }, (_, row) => articles[topRow + row])
-  const leftRows = rowArticles.map((article, row) => {
-    if (!article) return ''
-    const index = topRow + row
-    return index === selected ? '>' : ' '
-  })
+  const cursors = rowArticles.map((article, row) => article && topRow + row === selected ? '>' : '')
   const dateRows = rowArticles.map((article) =>
     article ? article.time.trim().slice(-TIME_WIDTH).padStart(TIME_WIDTH) : '',
   )
@@ -235,32 +240,19 @@ function renderList(message?: string): void {
     return value.trimStart().startsWith('-') ? value : ''
   })
 
+  // 所有欄位各 7 行（標頭＋6 列），不再讓捕捉框產生可見捲動條。
   void bridge.textContainerUpgrade(new TextContainerUpgrade({
-    containerID: 1,
-    containerName: 'board',
-    content: [
-      newerPageUrl ? 'Baseball' : 'Baseball 最新',
-      '  游標',
-      ...leftRows,
-      '',
-      '滑動選取',
-    ].join('\n'),
+    containerID: 1, containerName: 'board', content: ['', ...cursors].join('\n'),
   }))
   renderTitleColumn()
   void bridge.textContainerUpgrade(new TextContainerUpgrade({
-    containerID: 3,
-    containerName: 'dates',
-    content: ['時間', '', ...dateRows].join('\n'),
+    containerID: 3, containerName: 'dates', content: ['時間', ...dateRows].join('\n'),
   }))
   void bridge.textContainerUpgrade(new TextContainerUpgrade({
-    containerID: 4,
-    containerName: 'likes-normal',
-    content: ['推數', '', ...normalLikes].join('\n'),
+    containerID: 4, containerName: 'likes-normal', content: ['推數', ...normalLikes].join('\n'),
   }))
   void bridge.textContainerUpgrade(new TextContainerUpgrade({
-    containerID: 5,
-    containerName: 'likes-dim',
-    content: ['', '', ...dimLikes].join('\n'),
+    containerID: 5, containerName: 'likes-dim', content: ['', ...dimLikes].join('\n'),
   }))
 }
 
@@ -290,7 +282,8 @@ async function loadBoard(url = BOARD_URL, selectAt: 'top' | 'bottom' = 'top'): P
 
 async function openArticle(): Promise<void> {
   const article = articles[selected]
-  if (!article) return
+  if (!article || isOpeningArticle) return
+  isOpeningArticle = true
 
   try {
     renderList('正在開啟文章…')
@@ -310,11 +303,13 @@ async function openArticle(): Promise<void> {
     activeArticle = undefined
     const detail = error instanceof Error ? error.message : '未知錯誤'
     renderList(`讀取文章失敗\n${clip(detail, 28)}\n\n按一下重試`)
+  } finally {
+    isOpeningArticle = false
   }
 }
 
 async function renderArticle(article: Article): Promise<void> {
-  const bodyPage = textPage(article.body || '(沒有可顯示的本文)', articleTextPage, 650)
+  const bodyPage = textPage(article.body || '(沒有可顯示的本文)', articleTextPage, 700)
   const allReplies = article.replies || []
   const repliesPerPage = 4
   const replyTotal = Math.max(1, Math.ceil(allReplies.length / repliesPerPage))
@@ -369,7 +364,7 @@ async function renderArticle(article: Article): Promise<void> {
 async function moveArticlePage(step: number): Promise<void> {
   if (!activeArticle) return
   const bodyLength = (activeArticle.body || '').length
-  const bodyLast = Math.max(0, Math.ceil(bodyLength / 650) - 1)
+  const bodyLast = Math.max(0, textPages(activeArticle.body || '', 700).length - 1)
   const replyLast = Math.max(0, Math.ceil((activeArticle.replies || []).length / 4) - 1)
   const nextBody = Math.max(0, Math.min(bodyLast, articleTextPage + step))
   const nextReplies = Math.max(0, Math.min(replyLast, replyTextPage + step))
