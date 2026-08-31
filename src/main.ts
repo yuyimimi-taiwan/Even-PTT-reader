@@ -42,6 +42,8 @@ let olderPageUrl: string | undefined
 let newerPageUrl: string | undefined
 let isLoadingPage = false
 let isOpeningArticle = false
+let pendingScroll: -1 | 1 | undefined
+let scrollTimer: ReturnType<typeof setTimeout> | undefined
 
 const bridge = await waitForEvenAppBridge()
 
@@ -319,20 +321,20 @@ async function renderArticle(article: Article): Promise<void> {
   const title = new TextContainerProperty({
     xPosition: 8, yPosition: 6, width: 560, height: 30,
     borderWidth: 0, borderColor: 0, paddingLength: 0,
-    containerID: 2, containerName: 'title', content: clip(article.title, 38),
+    containerID: 1, containerName: 'title', content: clip(article.title, 38),
     textColor: 4, isEventCapture: 0,
   })
   const body = new TextContainerProperty({
     xPosition: 8, yPosition: 40, width: 560, height: 124,
     borderWidth: 1, borderColor: 8, paddingLength: 6,
-    containerID: 3, containerName: 'article',
+    containerID: 2, containerName: 'article',
     content: `本文 ${articleTextPage + 1}/${bodyPage.total}\n${bodyPage.content}`,
     textColor: 3, isEventCapture: 1,
   })
   const replies = new TextContainerProperty({
     xPosition: 8, yPosition: 172, width: 560, height: 108,
     borderWidth: 1, borderColor: 8, paddingLength: 6,
-    containerID: 4, containerName: 'replies',
+    containerID: 3, containerName: 'replies',
     content: [
       `推文 ${replyTextPage + 1}/${replyTotal}`,
       ...replyRows.map((reply) => `     ｜${reply.author}｜${reply.time}`),
@@ -343,22 +345,23 @@ async function renderArticle(article: Article): Promise<void> {
   const normalMarks = new TextContainerProperty({
     xPosition: 15, yPosition: 172, width: 35, height: 108,
     borderWidth: 0, borderColor: 0, paddingLength: 6,
-    containerID: 5, containerName: 'reply-marks-normal',
+    containerID: 4, containerName: 'reply-marks-normal',
     content: ['', ...replyRows.map((reply) => reply.mark === '噓' ? '' : reply.mark)].join('\n'),
     textColor: 2, isEventCapture: 0,
   })
   const dimMarks = new TextContainerProperty({
     xPosition: 15, yPosition: 172, width: 35, height: 108,
     borderWidth: 0, borderColor: 0, paddingLength: 6,
-    containerID: 6, containerName: 'reply-marks-dim',
+    containerID: 5, containerName: 'reply-marks-dim',
     content: ['', ...replyRows.map((reply) => reply.mark === '噓' ? reply.mark : '')].join('\n'),
     textColor: 1, isEventCapture: 0,
   })
 
-  await bridge.rebuildPageContainer({
+  const rebuilt = await bridge.rebuildPageContainer({
     containerTotalNum: 5,
     textObject: [title, body, replies, normalMarks, dimMarks],
   } as RebuildPageContainer)
+  if (!rebuilt) throw new Error('閱讀頁配置被 Even 拒絕')
 }
 
 async function moveArticlePage(step: number): Promise<void> {
@@ -406,6 +409,16 @@ async function moveCursor(step: number): Promise<void> {
   renderList()
 }
 
+function queueCursorMove(step: -1 | 1): void {
+  pendingScroll = step
+  if (scrollTimer) clearTimeout(scrollTimer)
+  scrollTimer = setTimeout(() => {
+    const finalStep = pendingScroll
+    pendingScroll = undefined
+    if (finalStep) void moveCursor(finalStep)
+  }, 90)
+}
+
 bridge.onEvenHubEvent((event) => {
   const input = event.textEvent ?? event.listEvent ?? event.sysEvent
   if (!input) return
@@ -423,10 +436,10 @@ bridge.onEvenHubEvent((event) => {
 
   switch (input.eventType) {
     case OsEventTypeList.SCROLL_TOP_EVENT:
-      void moveCursor(-1)
+      queueCursorMove(-1)
       break
     case OsEventTypeList.SCROLL_BOTTOM_EVENT:
-      void moveCursor(1)
+      queueCursorMove(1)
       break
     case OsEventTypeList.CLICK_EVENT:
     case undefined:
