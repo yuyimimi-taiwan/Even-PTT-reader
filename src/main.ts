@@ -8,6 +8,7 @@ import {
 import type { RebuildPageContainer } from '@evenrealities/even_hub_sdk'
 
 type Reply = { mark: string; author: string; time: string; content: string }
+type Board = { name: string; url: string }
 type Article = {
   likes: string
   title: string
@@ -29,7 +30,8 @@ type ReplyPageLayout = {
 }
 
 const PROXY = 'https://cloudflare-cors-anywhere.yuyimimi.workers.dev/'
-const BOARD_URL = 'https://www.ptt.cc/bbs/Baseball/index.html'
+const DEFAULT_BOARDS: Board[] = [{ name: '棒球版', url: 'https://www.ptt.cc/bbs/Baseball/index.html' }]
+const BOARD_STORE = 'even-ptt-reader-boards-v1'
 const ROWS = 6
 const LIKE_WIDTH = 3
 // 以中文最寬字形計算，避免任何一列自動換行。
@@ -40,7 +42,11 @@ let articles: Article[] = []
 let selected = 0
 let topRow = 0
 let marqueeOffset = 0
-let page: 'list' | 'article' = 'list'
+let page: 'home' | 'list' | 'article' = 'home'
+let boards = readBoards()
+let boardSelected = 0
+let boardTopRow = 0
+let currentBoard: Board | undefined
 let activeArticle: Article | undefined
 let articleTextPage = 0
 let replyTextPage = 0
@@ -53,6 +59,23 @@ let pendingUpScrollTimer: ReturnType<typeof setTimeout> | undefined
 let lastListScrollDirection: -1 | 0 | 1 = 0
 let lastListScrollAt = 0
 let holdScrollTimer: ReturnType<typeof setInterval> | undefined
+
+function readBoards(): Board[] {
+  try {
+    const value = JSON.parse(localStorage.getItem(BOARD_STORE) || '[]')
+    if (Array.isArray(value)) {
+      const safe = value.filter((item): item is Board => typeof item?.name === 'string' && typeof item?.url === 'string')
+        .map((item) => ({ name: item.name.trim().slice(0, 30), url: item.url.trim() }))
+        .filter((item) => item.name && /^https:\/\/www\.ptt\.cc\/bbs\/[A-Za-z0-9_-]+\//.test(item.url))
+      if (safe.length) return safe
+    }
+  } catch { /* 預設 */ }
+  return [...DEFAULT_BOARDS]
+}
+function saveBoards(next: Board[]): void {
+  boards = next.length ? next : [...DEFAULT_BOARDS]
+  try { localStorage.setItem(BOARD_STORE, JSON.stringify(boards)) } catch { /* 本次仍可用 */ }
+}
 
 const bridge = await waitForEvenAppBridge()
 
@@ -87,13 +110,53 @@ const listLikesDim = new TextContainerProperty({
   textColor: 1, isEventCapture: 0,
 })
 
+const homeScreen = new TextContainerProperty({
+  xPosition: 8, yPosition: 8, width: 560, height: 272, borderWidth: 0, borderColor: 0, paddingLength: 0,
+  containerID: 1, containerName: 'home-cursor', content: '', isEventCapture: 1,
+})
+const homeNames = new TextContainerProperty({
+  xPosition: 40, yPosition: 8, width: 520, height: 272, borderWidth: 0, borderColor: 0, paddingLength: 0,
+  containerID: 2, containerName: 'home-names', content: '', isEventCapture: 0,
+})
 const started = await bridge.createStartUpPageContainer(
-  new CreateStartUpPageContainer({
-    containerTotalNum: 5,
-    textObject: [listScreen, listTitles, listDates, listLikesNormal, listLikesDim],
-  }),
+  new CreateStartUpPageContainer({ containerTotalNum: 2, textObject: [homeScreen, homeNames] }),
 )
-if (started !== 0) console.error('Unable to create PTT board page:', started)
+if (started !== 0) console.error('Unable to create PTT home page:', started)
+
+function renderHome(): void {
+  boardSelected = Math.max(0, Math.min(boards.length - 1, boardSelected))
+  if (boardSelected < boardTopRow) boardTopRow = boardSelected
+  if (boardSelected >= boardTopRow + ROWS) boardTopRow = boardSelected - ROWS + 1
+  const visible = Array.from({ length: ROWS }, (_, row) => boards[boardTopRow + row])
+  void bridge.textContainerUpgrade(new TextContainerUpgrade({
+    containerID: 1, containerName: 'home-cursor',
+    content: [' ', ...visible.map((board, row) => board && boardTopRow + row === boardSelected ? '>' : '')].join('\n'),
+  }))
+  void bridge.textContainerUpgrade(new TextContainerUpgrade({
+    containerID: 2, containerName: 'home-names',
+    content: ['PTT 看板', ...visible.map((board) => board ? clip(board.name, 26) : '')].join('\n'),
+  }))
+}
+async function showHome(): Promise<void> {
+  stopHoldScroll()
+  page = 'home'
+  activeArticle = undefined
+  await bridge.rebuildPageContainer({ containerTotalNum: 2, textObject: [homeScreen, homeNames] } as RebuildPageContainer)
+  renderHome()
+}
+async function openSelectedBoard(): Promise<void> {
+  const board = boards[boardSelected]
+  if (!board) return
+  currentBoard = board
+  page = 'list'
+  selected = 0
+  topRow = 0
+  marqueeOffset = 0
+  await bridge.rebuildPageContainer({
+    containerTotalNum: 5, textObject: [listScreen, listTitles, listDates, listLikesNormal, listLikesDim],
+  } as RebuildPageContainer)
+  await loadBoard(board.url)
+}
 
 function proxied(url: string): string {
   return `${PROXY}?${encodeURIComponent(url)}`
@@ -275,12 +338,12 @@ function renderList(message?: string): void {
   }))
 }
 
-async function loadBoard(url = BOARD_URL, selectAt: 'top' | 'bottom' = 'top'): Promise<void> {
+async function loadBoard(url = currentBoard?.url || DEFAULT_BOARDS[0].url, selectAt: 'top' | 'bottom' = 'top'): Promise<void> {
   if (isLoadingPage) return
   isLoadingPage = true
 
   try {
-    renderList('正在讀取 PTT Baseball…')
+    renderList(`正在讀取 ${currentBoard?.name || 'PTT'}…`)
     const loaded = parseBoard(await getHtml(url), url)
     if (loaded.articles.length === 0) throw new Error('看板沒有可讀文章')
 
@@ -541,6 +604,19 @@ bridge.onEvenHubEvent((event) => {
   const input = event.textEvent ?? event.listEvent ?? event.sysEvent
   if (!input) return
 
+  if (page === 'home') {
+    if (input.eventType === OsEventTypeList.SCROLL_TOP_EVENT && boardSelected > 0) {
+      boardSelected -= 1
+      renderHome()
+    } else if (input.eventType === OsEventTypeList.SCROLL_BOTTOM_EVENT && boardSelected < boards.length - 1) {
+      boardSelected += 1
+      renderHome()
+    } else if (input.eventType === OsEventTypeList.CLICK_EVENT || input.eventType === undefined) {
+      void openSelectedBoard()
+    }
+    return
+  }
+
   if (page === 'article') {
     if (input.eventType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
       void returnToList()
@@ -573,7 +649,7 @@ bridge.onEvenHubEvent((event) => {
       else void loadBoard()
       break
     case OsEventTypeList.DOUBLE_CLICK_EVENT:
-      void bridge.shutDownPageContainer(1)
+      void showHome()
       break
     default:
       // 部分韌體將點按回報為未列出的事件類型；在列表上一律視為開啟文章。
@@ -589,4 +665,59 @@ setInterval(() => {
   }
 }, 300)
 
-void loadBoard()
+renderHome()
+setupPhoneSettings()
+
+function setupPhoneSettings(): void {
+  const root = document.querySelector<HTMLElement>('#settings')
+  if (!root) return
+  const draw = () => {
+    root.replaceChildren()
+    const form = document.createElement('form')
+    form.className = 'add-board'
+    form.innerHTML = '<h2>新增 PTT 看板</h2><input name="name" maxlength="30" required placeholder="顯示名稱，例如：棒球版"><input name="url" required inputmode="url" placeholder="PTT 看板網址，例如 https://www.ptt.cc/bbs/Baseball/index.html"><button>加入看板</button>'
+    form.addEventListener('submit', (event) => {
+      event.preventDefault()
+      const data = new FormData(form)
+      const name = String(data.get('name') || '').trim()
+      const url = String(data.get('url') || '').trim()
+      if (!name || !/^https:\/\/www\.ptt\.cc\/bbs\/[A-Za-z0-9_-]+\//.test(url)) {
+        alert('請輸入 PTT 看板網址，例如 https://www.ptt.cc/bbs/Baseball/index.html')
+        return
+      }
+      saveBoards([...boards, { name, url }])
+      boardSelected = boards.length - 1
+      if (page === 'home') renderHome()
+      draw()
+    })
+    root.append(form)
+    const title = document.createElement('h2')
+    title.textContent = '已加入的看板'
+    root.append(title)
+    const list = document.createElement('div')
+    list.className = 'board-settings-list'
+    boards.forEach((board, index) => {
+      const row = document.createElement('div')
+      row.className = 'board-setting-row'
+      const info = document.createElement('div')
+      const name = document.createElement('strong')
+      name.textContent = board.name
+      const url = document.createElement('small')
+      url.textContent = board.url
+      info.append(name, url)
+      const remove = document.createElement('button')
+      remove.type = 'button'
+      remove.textContent = '移除'
+      remove.addEventListener('click', () => {
+        saveBoards(boards.filter((_, itemIndex) => itemIndex !== index))
+        boardSelected = Math.min(boardSelected, boards.length - 1)
+        if (page === 'home') renderHome()
+        draw()
+      })
+      row.append(info, remove)
+      list.append(row)
+    })
+    root.append(list)
+  }
+  draw()
+}
