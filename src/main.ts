@@ -62,11 +62,23 @@ const listDates = new TextContainerProperty({
   containerID: 3, containerName: 'dates', content: '',
   isEventCapture: 0,
 })
+const listLikesNormal = new TextContainerProperty({
+  xPosition: 35, yPosition: 8, width: 50, height: 272,
+  borderWidth: 0, borderColor: 0, paddingLength: 0,
+  containerID: 4, containerName: 'likes-normal', content: '',
+  textColor: 3, isEventCapture: 0,
+})
+const listLikesDim = new TextContainerProperty({
+  xPosition: 35, yPosition: 8, width: 50, height: 272,
+  borderWidth: 0, borderColor: 0, paddingLength: 0,
+  containerID: 5, containerName: 'likes-dim', content: '',
+  textColor: 1, isEventCapture: 0,
+})
 
 const started = await bridge.createStartUpPageContainer(
   new CreateStartUpPageContainer({
-    containerTotalNum: 3,
-    textObject: [listScreen, listTitles, listDates],
+    containerTotalNum: 5,
+    textObject: [listScreen, listTitles, listDates, listLikesNormal, listLikesDim],
   }),
 )
 if (started !== 0) console.error('Unable to create PTT board page:', started)
@@ -196,6 +208,12 @@ function renderList(message?: string): void {
     void bridge.textContainerUpgrade(new TextContainerUpgrade({
       containerID: 3, containerName: 'dates', content: '',
     }))
+    void bridge.textContainerUpgrade(new TextContainerUpgrade({
+      containerID: 4, containerName: 'likes-normal', content: '',
+    }))
+    void bridge.textContainerUpgrade(new TextContainerUpgrade({
+      containerID: 5, containerName: 'likes-dim', content: '',
+    }))
     return
   }
 
@@ -203,19 +221,26 @@ function renderList(message?: string): void {
   const leftRows = rowArticles.map((article, row) => {
     if (!article) return ''
     const index = topRow + row
-    const likes = displayLikes(article.likes).slice(0, LIKE_WIDTH).padStart(LIKE_WIDTH)
-    return `${index === selected ? '>' : ' '} ${likes}`
+    return index === selected ? '>' : ' '
   })
   const dateRows = rowArticles.map((article) =>
     article ? article.time.trim().slice(-TIME_WIDTH).padStart(TIME_WIDTH) : '',
   )
+  const normalLikes = rowArticles.map((article) => {
+    const value = article ? displayLikes(article.likes).slice(0, LIKE_WIDTH).padStart(LIKE_WIDTH) : ''
+    return value.startsWith('-') ? '' : value
+  })
+  const dimLikes = rowArticles.map((article) => {
+    const value = article ? displayLikes(article.likes).slice(0, LIKE_WIDTH).padStart(LIKE_WIDTH) : ''
+    return value.startsWith('-') ? value : ''
+  })
 
   void bridge.textContainerUpgrade(new TextContainerUpgrade({
     containerID: 1,
     containerName: 'board',
     content: [
       newerPageUrl ? 'Baseball' : 'Baseball 最新',
-      '  推數',
+      '  游標',
       ...leftRows,
       '',
       '滑動選取',
@@ -226,6 +251,16 @@ function renderList(message?: string): void {
     containerID: 3,
     containerName: 'dates',
     content: ['時間', '', ...dateRows].join('\n'),
+  }))
+  void bridge.textContainerUpgrade(new TextContainerUpgrade({
+    containerID: 4,
+    containerName: 'likes-normal',
+    content: ['推數', '', ...normalLikes].join('\n'),
+  }))
+  void bridge.textContainerUpgrade(new TextContainerUpgrade({
+    containerID: 5,
+    containerName: 'likes-dim',
+    content: ['', '', ...dimLikes].join('\n'),
   }))
 }
 
@@ -279,12 +314,12 @@ async function openArticle(): Promise<void> {
 }
 
 async function renderArticle(article: Article): Promise<void> {
-  // Even 的單一文字框有長度限制；把本文與推文分頁，避免長文令閱讀頁無法開啟。
   const bodyPage = textPage(article.body || '(沒有可顯示的本文)', articleTextPage, 650)
-  const replySource = (article.replies || [])
-    .map((reply) => `${reply.mark}｜${reply.author}｜${reply.time}`)
-    .join('\n') || '(沒有推文)'
-  const repliesPage = textPage(replySource, replyTextPage, 520)
+  const allReplies = article.replies || []
+  const repliesPerPage = 4
+  const replyTotal = Math.max(1, Math.ceil(allReplies.length / repliesPerPage))
+  const replyStart = replyTextPage * repliesPerPage
+  const replyRows = allReplies.slice(replyStart, replyStart + repliesPerPage)
 
   const title = new TextContainerProperty({
     xPosition: 8, yPosition: 6, width: 560, height: 30,
@@ -292,7 +327,6 @@ async function renderArticle(article: Article): Promise<void> {
     containerID: 2, containerName: 'title', content: clip(article.title, 38),
     textColor: 4, isEventCapture: 0,
   })
-
   const body = new TextContainerProperty({
     xPosition: 8, yPosition: 40, width: 560, height: 124,
     borderWidth: 1, borderColor: 8, paddingLength: 6,
@@ -300,29 +334,45 @@ async function renderArticle(article: Article): Promise<void> {
     content: `本文 ${articleTextPage + 1}/${bodyPage.total}\n${bodyPage.content}`,
     textColor: 3, isEventCapture: 1,
   })
-
   const replies = new TextContainerProperty({
     xPosition: 8, yPosition: 172, width: 560, height: 108,
     borderWidth: 1, borderColor: 8, paddingLength: 6,
     containerID: 4, containerName: 'replies',
-    content: `推文 ${replyTextPage + 1}/${repliesPage.total}\n${repliesPage.content}`,
+    content: [
+      `推文 ${replyTextPage + 1}/${replyTotal}`,
+      ...replyRows.map((reply) => `     ｜${reply.author}｜${reply.time}`),
+    ].join('\n') || '(沒有推文)',
     textColor: 2, isEventCapture: 0,
+  })
+  // 同一位置疊兩個記號欄：只有「噓」使用較暗文字色。
+  const normalMarks = new TextContainerProperty({
+    xPosition: 15, yPosition: 172, width: 35, height: 108,
+    borderWidth: 0, borderColor: 0, paddingLength: 6,
+    containerID: 5, containerName: 'reply-marks-normal',
+    content: ['', ...replyRows.map((reply) => reply.mark === '噓' ? '' : reply.mark)].join('\n'),
+    textColor: 2, isEventCapture: 0,
+  })
+  const dimMarks = new TextContainerProperty({
+    xPosition: 15, yPosition: 172, width: 35, height: 108,
+    borderWidth: 0, borderColor: 0, paddingLength: 6,
+    containerID: 6, containerName: 'reply-marks-dim',
+    content: ['', ...replyRows.map((reply) => reply.mark === '噓' ? reply.mark : '')].join('\n'),
+    textColor: 1, isEventCapture: 0,
   })
 
   await bridge.rebuildPageContainer({
-    containerTotalNum: 3,
-    textObject: [title, body, replies],
+    containerTotalNum: 5,
+    textObject: [title, body, replies, normalMarks, dimMarks],
   } as RebuildPageContainer)
 }
 
 async function moveArticlePage(step: number): Promise<void> {
   if (!activeArticle) return
   const bodyLength = (activeArticle.body || '').length
-  const replyLength = (activeArticle.replies || [])
-    .map((reply) => `${reply.mark}｜${reply.author}｜${reply.time}`)
-    .join('\n').length
-  const nextBody = Math.max(0, Math.min(Math.max(0, Math.ceil(bodyLength / 650) - 1), articleTextPage + step))
-  const nextReplies = Math.max(0, Math.min(Math.max(0, Math.ceil(replyLength / 520) - 1), replyTextPage + step))
+  const bodyLast = Math.max(0, Math.ceil(bodyLength / 650) - 1)
+  const replyLast = Math.max(0, Math.ceil((activeArticle.replies || []).length / 4) - 1)
+  const nextBody = Math.max(0, Math.min(bodyLast, articleTextPage + step))
+  const nextReplies = Math.max(0, Math.min(replyLast, replyTextPage + step))
   if (nextBody === articleTextPage && nextReplies === replyTextPage) return
   articleTextPage = nextBody
   replyTextPage = nextReplies
@@ -334,8 +384,8 @@ async function returnToList(): Promise<void> {
   activeArticle = undefined
   marqueeOffset = 0
   await bridge.rebuildPageContainer({
-    containerTotalNum: 3,
-    textObject: [listScreen, listTitles, listDates],
+    containerTotalNum: 5,
+    textObject: [listScreen, listTitles, listDates, listLikesNormal, listLikesDim],
   } as RebuildPageContainer)
   renderList()
 }
