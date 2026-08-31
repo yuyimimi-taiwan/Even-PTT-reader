@@ -45,6 +45,9 @@ let newerPageUrl: string | undefined
 let isLoadingPage = false
 let isOpeningArticle = false
 let pendingUpScrollTimer: ReturnType<typeof setTimeout> | undefined
+let activeScrollDirection: -1 | 0 | 1 = 0
+let scrollRepeatTimer: ReturnType<typeof setInterval> | undefined
+let scrollStopTimer: ReturnType<typeof setTimeout> | undefined
 
 const bridge = await waitForEvenAppBridge()
 
@@ -449,20 +452,42 @@ async function moveCursor(step: number): Promise<void> {
   renderList()
 }
 
+function stopListScroll(): void {
+  activeScrollDirection = 0
+  if (scrollRepeatTimer) clearInterval(scrollRepeatTimer)
+  scrollRepeatTimer = undefined
+  if (scrollStopTimer) clearTimeout(scrollStopTimer)
+  scrollStopTimer = undefined
+}
+
+function beginListScroll(step: -1 | 1): void {
+  if (activeScrollDirection !== step) {
+    stopListScroll()
+    activeScrollDirection = step
+    void moveCursor(step)
+    // 眼鏡只給離散手勢事件；在短時間內重複選取，讓操作感接近連續捲動。
+    scrollRepeatTimer = setInterval(() => void moveCursor(step), 135)
+  }
+
+  if (scrollStopTimer) clearTimeout(scrollStopTimer)
+  scrollStopTimer = setTimeout(stopListScroll, 360)
+}
+
 function handleListScroll(step: -1 | 1): void {
   if (step > 0) {
-    // R1/G2 有時會在下滑開始時先送一個錯誤的上滑事件；下滑一到就取消它。
     if (pendingUpScrollTimer) clearTimeout(pendingUpScrollTimer)
     pendingUpScrollTimer = undefined
-    void moveCursor(1)
+    beginListScroll(1)
     return
   }
 
+  // 下滑途中偶發的反向事件不處理，避免游標反彈。
+  if (activeScrollDirection === 1) return
   if (pendingUpScrollTimer) clearTimeout(pendingUpScrollTimer)
   pendingUpScrollTimer = setTimeout(() => {
     pendingUpScrollTimer = undefined
-    void moveCursor(-1)
-  }, 550)
+    beginListScroll(-1)
+  }, 220)
 }
 
 bridge.onEvenHubEvent((event) => {
