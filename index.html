@@ -4,8 +4,33 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Even PTT Reader</title>
+    <style>
+      :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "Noto Sans TC", sans-serif; }
+      body { margin: 0; min-height: 100vh; background: #101217; color: #f4f5fb; }
+      main { max-width: 680px; margin: 0 auto; padding: 32px 18px 48px; }
+      h1 { margin: 4px 0 6px; color: #a48bff; font-size: 40px; letter-spacing: -.8px; }
+      .lead { margin: 0 0 28px; color: #a9b3c8; font-size: 18px; }
+      .card { margin: 20px 0; padding: 22px; border: 1px solid #33425c; border-radius: 22px; background: #191d24; }
+      h2 { margin: 0 0 16px; font-size: 23px; }
+      input, button { box-sizing: border-box; width: 100%; font: inherit; border-radius: 12px; }
+      input { margin: 0 0 12px; padding: 14px; color: #fff; background: #101217; border: 1px solid #415272; }
+      button { padding: 13px; border: 0; color: white; background: #5146e8; font-weight: 700; }
+      .board-settings-list { display: grid; gap: 12px; }
+      .board-setting-row { display: flex; align-items: center; gap: 12px; padding: 14px; border: 1px solid #33425c; border-radius: 14px; }
+      .board-setting-row > div { flex: 1; min-width: 0; }
+      strong, small { display: block; }
+      small { margin-top: 5px; overflow: hidden; color: #9aa5ba; text-overflow: ellipsis; white-space: nowrap; }
+      .board-setting-row button { width: auto; padding: 9px 12px; background: #373255; color: #c7baff; }
+      .hint { margin: 20px 0 0; color: #9aa5ba; line-height: 1.5; }
+    </style>
   </head>
   <body>
+    <main>
+      <h1>Even PTT Reader</h1>
+      <p class="lead">管理眼鏡上要顯示的 PTT 看板</p>
+      <section id="settings" class="card"></section>
+      <p class="hint">設定會保存在這支手機的 Even Hub 裡。眼鏡重新開啟閱讀器後，會先顯示看板選單。</p>
+    </main>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
