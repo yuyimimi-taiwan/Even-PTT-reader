@@ -27,7 +27,8 @@ const PROXY = 'https://cloudflare-cors-anywhere.yuyimimi.workers.dev/'
 const BOARD_URL = 'https://www.ptt.cc/bbs/Baseball/index.html'
 const ROWS = 6
 const LIKE_WIDTH = 3
-const TITLE_WIDTH = 25
+// 以中文最寬字形計算，避免任何一列自動換行。
+const TITLE_WIDTH = 16
 const TIME_WIDTH = 5
 
 let articles: Article[] = []
@@ -203,12 +204,17 @@ function displayLikes(value: string): string {
   return raw || '0'
 }
 
+function listTitle(text: string): string {
+  // 列表不顯示省略號，以固定字數直接截斷，保留單行排版。
+  return text.slice(0, TITLE_WIDTH)
+}
+
 function renderTitleColumn(): void {
   const titleRows = Array.from({ length: ROWS }, (_, row) => {
     const article = articles[topRow + row]
     if (!article) return ''
     const index = topRow + row
-    return index === selected ? marquee(article.title, TITLE_WIDTH) : clip(article.title, TITLE_WIDTH)
+    return index === selected ? marquee(article.title, TITLE_WIDTH) : listTitle(article.title)
   })
   void bridge.textContainerUpgrade(new TextContainerUpgrade({
     containerID: 2,
