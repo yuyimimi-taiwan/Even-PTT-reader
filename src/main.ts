@@ -45,9 +45,9 @@ let newerPageUrl: string | undefined
 let isLoadingPage = false
 let isOpeningArticle = false
 let pendingUpScrollTimer: ReturnType<typeof setTimeout> | undefined
-let activeScrollDirection: -1 | 0 | 1 = 0
-let scrollRepeatTimer: ReturnType<typeof setInterval> | undefined
-let scrollStopTimer: ReturnType<typeof setTimeout> | undefined
+let lastListScrollDirection: -1 | 0 | 1 = 0
+let lastListScrollAt = 0
+let holdScrollTimer: ReturnType<typeof setInterval> | undefined
 
 const bridge = await waitForEvenAppBridge()
 
@@ -452,45 +452,43 @@ async function moveCursor(step: number): Promise<void> {
   renderList()
 }
 
-function stopListScroll(): void {
-  activeScrollDirection = 0
-  if (scrollRepeatTimer) clearInterval(scrollRepeatTimer)
-  scrollRepeatTimer = undefined
-  if (scrollStopTimer) clearTimeout(scrollStopTimer)
-  scrollStopTimer = undefined
+function stopHoldScroll(): void {
+  if (holdScrollTimer) clearInterval(holdScrollTimer)
+  holdScrollTimer = undefined
 }
 
-function beginListScroll(step: -1 | 1): void {
-  if (activeScrollDirection !== step) {
-    stopListScroll()
-    activeScrollDirection = step
-    void moveCursor(step)
-    // 眼鏡只給離散手勢事件；在短時間內重複選取，讓操作感接近連續捲動。
-    scrollRepeatTimer = setInterval(() => void moveCursor(step), 135)
-  }
-
-  if (scrollStopTimer) clearTimeout(scrollStopTimer)
-  scrollStopTimer = setTimeout(stopListScroll, 360)
+function startHoldScroll(): void {
+  if (holdScrollTimer || lastListScrollDirection === 0) return
+  if (Date.now() - lastListScrollAt > 900) return
+  holdScrollTimer = setInterval(() => void moveCursor(lastListScrollDirection), 180)
 }
 
 function handleListScroll(step: -1 | 1): void {
   if (step > 0) {
     if (pendingUpScrollTimer) clearTimeout(pendingUpScrollTimer)
     pendingUpScrollTimer = undefined
-    beginListScroll(1)
+    lastListScrollDirection = 1
+    lastListScrollAt = Date.now()
+    void moveCursor(1)
     return
   }
 
-  // 下滑途中偶發的反向事件不處理，避免游標反彈。
-  if (activeScrollDirection === 1) return
+  // 下滑途中偶發的反向事件延後判定；若後面真的是下滑會被取消。
   if (pendingUpScrollTimer) clearTimeout(pendingUpScrollTimer)
   pendingUpScrollTimer = setTimeout(() => {
     pendingUpScrollTimer = undefined
-    beginListScroll(-1)
+    lastListScrollDirection = -1
+    lastListScrollAt = Date.now()
+    void moveCursor(-1)
   }, 220)
 }
 
 bridge.onEvenHubEvent((event) => {
+  if (page === 'list') {
+    if (event.sysEvent?.eventType === OsEventTypeList.LONG_PRESS_EVENT) startHoldScroll()
+    if (event.sysEvent?.eventType === OsEventTypeList.LONG_PRESS_RELEASE_EVENT) stopHoldScroll()
+  }
+
   const input = event.textEvent ?? event.listEvent ?? event.sysEvent
   if (!input) return
 
