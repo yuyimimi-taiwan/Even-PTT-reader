@@ -23,6 +23,11 @@ type BoardPage = {
   newerUrl?: string
 }
 
+type ReplyPageLayout = {
+  left: string
+  times: string
+}
+
 const PROXY = 'https://cloudflare-cors-anywhere.yuyimimi.workers.dev/'
 const BOARD_URL = 'https://www.ptt.cc/bbs/Baseball/index.html'
 const ROWS = 6
@@ -345,7 +350,7 @@ function textColumns(text: string): number {
   return Array.from(text).reduce((sum, char) => sum + (char.codePointAt(0)! > 0xff ? 2 : 1), 0)
 }
 
-function wrapReplyContent(content: string, maxColumns = 52): string {
+function wrapReplyContent(content: string, maxColumns = 34): string[] {
   const lines: string[] = []
   const indent = '　　'
   for (const sourceLine of content.split('\n')) {
@@ -353,7 +358,7 @@ function wrapReplyContent(content: string, maxColumns = 52): string {
     let used = 4
     for (const char of sourceLine) {
       const width = char.codePointAt(0)! > 0xff ? 2 : 1
-      if (used + width > maxColumns && used > 2) {
+      if (used + width > maxColumns && used > 4) {
         lines.push(current)
         current = indent
         used = 4
@@ -363,27 +368,44 @@ function wrapReplyContent(content: string, maxColumns = 52): string {
     }
     lines.push(current)
   }
-  return lines.join('\n')
+  return lines
 }
 
-function replyText(article: Article): string {
-  const totalColumns = 56
-  const text = (article.replies || [])
-    .map((reply) => {
-      const left = `${reply.mark}｜${reply.author}`
-      const time = reply.time.trim()
-      const gap = ' '.repeat(Math.max(1, totalColumns - textColumns(left) - textColumns(time)))
-      return [`${left}${gap}${time}`, wrapReplyContent(reply.content || '(無內容)')].join('\n')
-    })
-    .join('\n')
-  return text || '(沒有推文)'
+function replyPages(article: Article): ReplyPageLayout[] {
+  const pages: ReplyPageLayout[] = []
+  let leftLines: string[] = []
+  let timeLines: string[] = []
+  let bytes = 0
+  const encoder = new TextEncoder()
+
+  for (const reply of article.replies || []) {
+    const bodyLines = wrapReplyContent(reply.content || '(無內容)')
+    const entryLeft = [`${reply.mark}｜${reply.author}`, ...bodyLines]
+    const entryTimes = [reply.time.trim().padStart(12), ...bodyLines.map(() => '')]
+    const entryBytes = encoder.encode(entryLeft.join('\n')).length
+
+    // 每頁只放完整貼文；很長的單則推文仍單獨放一頁，不與下一則混合。
+    if (leftLines.length > 0 && bytes + entryBytes > 590) {
+      pages.push({ left: leftLines.join('\n'), times: timeLines.join('\n') })
+      leftLines = []
+      timeLines = []
+      bytes = 0
+    }
+
+    leftLines.push(...entryLeft)
+    timeLines.push(...entryTimes)
+    bytes += entryBytes
+  }
+
+  if (leftLines.length > 0) pages.push({ left: leftLines.join('\n'), times: timeLines.join('\n') })
+  return pages.length ? pages : [{ left: '(沒有推文)', times: '' }]
 }
 
 async function renderArticle(article: Article): Promise<void> {
   const isBody = articleView === 'body'
-  const source = isBody ? (article.body || '(沒有可顯示的本文)') : replyText(article)
-  const pageNumber = isBody ? articleTextPage : replyTextPage
-  const contentPage = textPage(source, pageNumber, 700)
+  const bodyPage = textPage(article.body || '(沒有可顯示的本文)', articleTextPage, 700)
+  const replyLayouts = replyPages(article)
+  const replyLayout = replyLayouts[Math.min(replyTextPage, replyLayouts.length - 1)]
 
   const title = new TextContainerProperty({
     xPosition: 8, yPosition: 6, width: 560, height: 30,
@@ -395,22 +417,44 @@ async function renderArticle(article: Article): Promise<void> {
     xPosition: 8, yPosition: 40, width: 560, height: 240,
     borderWidth: 1, borderColor: 8, paddingLength: 6,
     containerID: 2, containerName: 'reader',
-    content: `${isBody ? '本文' : '推文'} ${pageNumber + 1}/${contentPage.total}\n${contentPage.content}`,
+    content: isBody
+      ? `本文 ${articleTextPage + 1}/${bodyPage.total}\n${bodyPage.content}`
+      : `推文 ${replyTextPage + 1}/${replyLayouts.length}`,
     textColor: isBody ? 3 : 2, isEventCapture: 1,
   })
+
+  if (isBody) {
+    const rebuilt = await bridge.rebuildPageContainer({
+      containerTotalNum: 2, textObject: [title, panel],
+    } as RebuildPageContainer)
+    if (!rebuilt) throw new Error('閱讀頁配置被 Even 拒絕')
+    return
+  }
+
+  // 推文左右兩欄不重疊：左欄是記號／ID／內容，右欄是固定時間欄。
+  const replyLeft = new TextContainerProperty({
+    xPosition: 16, yPosition: 68, width: 408, height: 204,
+    borderWidth: 0, borderColor: 0, paddingLength: 0,
+    containerID: 3, containerName: 'reply-left', content: replyLayout.left,
+    textColor: 2, isEventCapture: 0,
+  })
+  const replyTime = new TextContainerProperty({
+    xPosition: 438, yPosition: 68, width: 118, height: 204,
+    borderWidth: 0, borderColor: 0, paddingLength: 0,
+    containerID: 4, containerName: 'reply-time', content: replyLayout.times,
+    textColor: 2, isEventCapture: 0,
+  })
   const rebuilt = await bridge.rebuildPageContainer({
-    containerTotalNum: 2,
-    textObject: [title, panel],
+    containerTotalNum: 4, textObject: [title, panel, replyLeft, replyTime],
   } as RebuildPageContainer)
   if (!rebuilt) throw new Error('閱讀頁配置被 Even 拒絕')
 }
 
 async function moveArticlePage(step: number): Promise<void> {
   if (!activeArticle) return
-  const source = articleView === 'body'
-    ? (activeArticle.body || '')
-    : replyText(activeArticle)
-  const last = Math.max(0, textPages(source, 700).length - 1)
+  const last = articleView === 'body'
+    ? Math.max(0, textPages(activeArticle.body || '', 700).length - 1)
+    : replyPages(activeArticle).length - 1
   const current = articleView === 'body' ? articleTextPage : replyTextPage
   const next = Math.max(0, Math.min(last, current + step))
   if (next === current) return
