@@ -385,7 +385,7 @@ function replyPages(article: Article): ReplyPageLayout[] {
     const entryBytes = encoder.encode(entryLeft.join('\n')).length
 
     // 每頁只放完整貼文；很長的單則推文仍單獨放一頁，不與下一則混合。
-    if (leftLines.length > 0 && bytes + entryBytes > 590) {
+    if (leftLines.length > 0 && (bytes + entryBytes > 590 || leftLines.length + entryLeft.length > 8)) {
       pages.push({ left: leftLines.join('\n'), times: timeLines.join('\n') })
       leftLines = []
       timeLines = []
@@ -503,7 +503,8 @@ function stopHoldScroll(): void {
 
 function startHoldScroll(): void {
   if (holdScrollTimer || lastListScrollDirection === 0) return
-  if (Date.now() - lastListScrollAt > 900) return
+  if (Date.now() - lastListScrollAt > 3_000) return
+  void moveCursor(lastListScrollDirection)
   holdScrollTimer = setInterval(() => void moveCursor(lastListScrollDirection), 180)
 }
 
@@ -528,9 +529,13 @@ function handleListScroll(step: -1 | 1): void {
 }
 
 bridge.onEvenHubEvent((event) => {
-  if (page === 'list') {
-    if (event.sysEvent?.eventType === OsEventTypeList.LONG_PRESS_EVENT) startHoldScroll()
-    if (event.sysEvent?.eventType === OsEventTypeList.LONG_PRESS_RELEASE_EVENT) stopHoldScroll()
+  if (page === 'list' && event.sysEvent?.eventType === OsEventTypeList.LONG_PRESS_EVENT) {
+    startHoldScroll()
+    return
+  }
+  if (page === 'list' && event.sysEvent?.eventType === OsEventTypeList.LONG_PRESS_RELEASE_EVENT) {
+    stopHoldScroll()
+    return
   }
 
   const input = event.textEvent ?? event.listEvent ?? event.sysEvent
