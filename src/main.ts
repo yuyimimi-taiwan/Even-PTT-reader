@@ -228,11 +228,11 @@ function renderList(message?: string): void {
   )
   const normalLikes = rowArticles.map((article) => {
     const value = article ? displayLikes(article.likes).slice(0, LIKE_WIDTH).padStart(LIKE_WIDTH) : ''
-    return value.startsWith('-') ? '' : value
+    return value.trimStart().startsWith('-') ? '' : value
   })
   const dimLikes = rowArticles.map((article) => {
     const value = article ? displayLikes(article.likes).slice(0, LIKE_WIDTH).padStart(LIKE_WIDTH) : ''
-    return value.startsWith('-') ? value : ''
+    return value.trimStart().startsWith('-') ? value : ''
   })
 
   void bridge.textContainerUpgrade(new TextContainerUpgrade({
