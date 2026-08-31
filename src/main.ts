@@ -28,7 +28,7 @@ const BOARD_URL = 'https://www.ptt.cc/bbs/Baseball/index.html'
 const ROWS = 6
 const LIKE_WIDTH = 3
 // 以中文最寬字形計算，避免任何一列自動換行。
-const TITLE_WIDTH = 20
+const TITLE_WIDTH = 22
 const TIME_WIDTH = 5
 
 let articles: Article[] = []
@@ -55,13 +55,13 @@ const listScreen = new TextContainerProperty({
   isEventCapture: 1,
 })
 const listTitles = new TextContainerProperty({
-  xPosition: 90, yPosition: 8, width: 412, height: 272,
+  xPosition: 86, yPosition: 8, width: 420, height: 272,
   borderWidth: 0, borderColor: 0, paddingLength: 0,
   containerID: 2, containerName: 'titles', content: '',
   isEventCapture: 0,
 })
 const listDates = new TextContainerProperty({
-  xPosition: 512, yPosition: 8, width: 56, height: 272,
+  xPosition: 510, yPosition: 8, width: 58, height: 272,
   borderWidth: 0, borderColor: 0, paddingLength: 0,
   containerID: 3, containerName: 'dates', content: '',
   isEventCapture: 0,
@@ -338,12 +338,39 @@ async function openArticle(): Promise<void> {
   }
 }
 
+function textColumns(text: string): number {
+  return Array.from(text).reduce((sum, char) => sum + (char.codePointAt(0)! > 0xff ? 2 : 1), 0)
+}
+
+function wrapReplyContent(content: string, maxColumns = 48): string {
+  const lines: string[] = []
+  for (const sourceLine of content.split('\n')) {
+    let current = '  '
+    let used = 2
+    for (const char of sourceLine) {
+      const width = char.codePointAt(0)! > 0xff ? 2 : 1
+      if (used + width > maxColumns && used > 2) {
+        lines.push(current)
+        current = '  '
+        used = 2
+      }
+      current += char
+      used += width
+    }
+    lines.push(current)
+  }
+  return lines.join('\n')
+}
+
 function replyText(article: Article): string {
+  const totalColumns = 52
   const text = (article.replies || [])
-    .map((reply) => [
-      `${reply.mark}｜${reply.author}｜${reply.time}`,
-      reply.content,
-    ].filter(Boolean).join('\n'))
+    .map((reply) => {
+      const left = `${reply.mark}｜${reply.author}`
+      const time = reply.time.trim()
+      const gap = ' '.repeat(Math.max(1, totalColumns - textColumns(left) - textColumns(time)))
+      return [`${left}${gap}${time}`, wrapReplyContent(reply.content || '(無內容)')].join('\n')
+    })
     .join('\n\n')
   return text || '(沒有推文)'
 }
