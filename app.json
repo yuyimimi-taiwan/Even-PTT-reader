@@ -2,7 +2,7 @@
   "package_id": "com.yuyimimi.evenpttreader",
   "name": "Even PTT Reader",
   "description": "A focused live PTT Baseball reader for Even G2.",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "edition": "202601",
   "min_sdk_version": "0.0.12",
   "entrypoint": "index.html",
