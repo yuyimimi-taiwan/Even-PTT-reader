@@ -45,7 +45,7 @@ let isLoadingPage = false
 const bridge = await waitForEvenAppBridge()
 
 const listScreen = new TextContainerProperty({
-  xPosition: 8, yPosition: 8, width: 78, height: 272,
+  xPosition: 8, yPosition: 8, width: 560, height: 272,
   borderWidth: 0, borderColor: 0, paddingLength: 0,
   containerID: 1, containerName: 'board', content: '讀取中…',
   isEventCapture: 1,
@@ -76,9 +76,15 @@ function proxied(url: string): string {
 }
 
 async function getHtml(url: string): Promise<string> {
-  const response = await fetch(proxied(url))
-  if (!response.ok) throw new Error(`PTT request failed: ${response.status}`)
-  return response.text()
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15_000)
+  try {
+    const response = await fetch(proxied(url), { signal: controller.signal })
+    if (!response.ok) throw new Error(`PTT request failed: ${response.status}`)
+    return response.text()
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 function parseBoard(html: string, url: string): BoardPage {
@@ -165,6 +171,20 @@ function displayLikes(value: string): string {
   return raw || '0'
 }
 
+function renderTitleColumn(): void {
+  const titleRows = Array.from({ length: ROWS }, (_, row) => {
+    const article = articles[topRow + row]
+    if (!article) return ''
+    const index = topRow + row
+    return index === selected ? marquee(article.title, TITLE_WIDTH) : clip(article.title, TITLE_WIDTH)
+  })
+  void bridge.textContainerUpgrade(new TextContainerUpgrade({
+    containerID: 2,
+    containerName: 'titles',
+    content: ['文章標題', '', ...titleRows, '', '按一下閱讀 · 雙擊離開'].join('\n'),
+  }))
+}
+
 function renderList(message?: string): void {
   if (message) {
     void bridge.textContainerUpgrade(new TextContainerUpgrade({
@@ -186,16 +206,10 @@ function renderList(message?: string): void {
     const likes = displayLikes(article.likes).slice(0, LIKE_WIDTH).padStart(LIKE_WIDTH)
     return `${index === selected ? '>' : ' '} ${likes}`
   })
-  const titleRows = rowArticles.map((article, row) => {
-    if (!article) return ''
-    const index = topRow + row
-    return index === selected ? marquee(article.title, TITLE_WIDTH) : clip(article.title, TITLE_WIDTH)
-  })
   const dateRows = rowArticles.map((article) =>
     article ? article.time.trim().slice(-TIME_WIDTH).padStart(TIME_WIDTH) : '',
   )
 
-  // 日期欄與標題欄為不同容器、固定座標；跑馬燈不會影響日期位置。
   void bridge.textContainerUpgrade(new TextContainerUpgrade({
     containerID: 1,
     containerName: 'board',
@@ -207,11 +221,7 @@ function renderList(message?: string): void {
       '滑動選取',
     ].join('\n'),
   }))
-  void bridge.textContainerUpgrade(new TextContainerUpgrade({
-    containerID: 2,
-    containerName: 'titles',
-    content: ['文章標題', '', ...titleRows, '', '按一下閱讀 · 雙擊離開'].join('\n'),
-  }))
+  renderTitleColumn()
   void bridge.textContainerUpgrade(new TextContainerUpgrade({
     containerID: 3,
     containerName: 'dates',
@@ -392,7 +402,7 @@ bridge.onEvenHubEvent((event) => {
 setInterval(() => {
   if (page === 'list' && articles[selected]?.title.length > TITLE_WIDTH) {
     marqueeOffset += 1
-    renderList()
+    renderTitleColumn()
   }
 }, 300)
 
