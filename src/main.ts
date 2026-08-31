@@ -461,7 +461,7 @@ function handleListScroll(step: -1 | 1): void {
   pendingUpScrollTimer = setTimeout(() => {
     pendingUpScrollTimer = undefined
     void moveCursor(-1)
-  }, 160)
+  }, 550)
 }
 
 bridge.onEvenHubEvent((event) => {
