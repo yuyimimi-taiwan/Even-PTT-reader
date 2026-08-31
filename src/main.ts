@@ -44,8 +44,7 @@ let olderPageUrl: string | undefined
 let newerPageUrl: string | undefined
 let isLoadingPage = false
 let isOpeningArticle = false
-let pendingScroll: -1 | 1 | undefined
-let scrollTimer: ReturnType<typeof setTimeout> | undefined
+let pendingUpScrollTimer: ReturnType<typeof setTimeout> | undefined
 
 const bridge = await waitForEvenAppBridge()
 
@@ -422,14 +421,20 @@ async function moveCursor(step: number): Promise<void> {
   renderList()
 }
 
-function queueCursorMove(step: -1 | 1): void {
-  pendingScroll = step
-  if (scrollTimer) clearTimeout(scrollTimer)
-  scrollTimer = setTimeout(() => {
-    const finalStep = pendingScroll
-    pendingScroll = undefined
-    if (finalStep) void moveCursor(finalStep)
-  }, 280)
+function handleListScroll(step: -1 | 1): void {
+  if (step > 0) {
+    // R1/G2 有時會在下滑開始時先送一個錯誤的上滑事件；下滑一到就取消它。
+    if (pendingUpScrollTimer) clearTimeout(pendingUpScrollTimer)
+    pendingUpScrollTimer = undefined
+    void moveCursor(1)
+    return
+  }
+
+  if (pendingUpScrollTimer) clearTimeout(pendingUpScrollTimer)
+  pendingUpScrollTimer = setTimeout(() => {
+    pendingUpScrollTimer = undefined
+    void moveCursor(-1)
+  }, 160)
 }
 
 bridge.onEvenHubEvent((event) => {
@@ -457,10 +462,10 @@ bridge.onEvenHubEvent((event) => {
 
   switch (input.eventType) {
     case OsEventTypeList.SCROLL_TOP_EVENT:
-      queueCursorMove(-1)
+      handleListScroll(-1)
       break
     case OsEventTypeList.SCROLL_BOTTOM_EVENT:
-      queueCursorMove(1)
+      handleListScroll(1)
       break
     case OsEventTypeList.CLICK_EVENT:
     case undefined:
