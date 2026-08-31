@@ -363,7 +363,6 @@ async function renderArticle(article: Article): Promise<void> {
 
 async function moveArticlePage(step: number): Promise<void> {
   if (!activeArticle) return
-  const bodyLength = (activeArticle.body || '').length
   const bodyLast = Math.max(0, textPages(activeArticle.body || '', 700).length - 1)
   const replyLast = Math.max(0, Math.ceil((activeArticle.replies || []).length / 4) - 1)
   const nextBody = Math.max(0, Math.min(bodyLast, articleTextPage + step))
