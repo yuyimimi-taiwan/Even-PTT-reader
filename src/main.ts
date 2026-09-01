@@ -480,7 +480,7 @@ function textColumns(text: string): number {
   return Array.from(text).reduce((sum, char) => sum + characterColumns(char), 0)
 }
 
-function wrapReplyContent(content: string, maxColumns = 34): string[] {
+function wrapReplyContent(content: string, maxColumns = 50): string[] {
   const lines: string[] = []
   const indent = '　　'
   for (const sourceLine of content.split('\n')) {
@@ -515,7 +515,7 @@ function replyPages(article: Article): ReplyPageLayout[] {
     const entryBytes = encoder.encode(entryLeft.join('\n')).length
 
     // 每頁只放完整貼文；很長的單則推文仍單獨放一頁，不與下一則混合。
-    if (leftLines.length > 0 && (bytes + entryBytes > 590 || leftLines.length + entryLeft.length > 6)) {
+    if (leftLines.length > 0 && (bytes + entryBytes > 860 || leftLines.length + entryLeft.length > 9)) {
       pages.push({ left: leftLines.join('\n'), times: timeLines.join('\n') })
       leftLines = []
       timeLines = []
