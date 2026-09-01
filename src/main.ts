@@ -112,6 +112,7 @@ async function syncBoardsFromDevelopmentServer(): Promise<void> {
 
 const bridge = await waitForEvenAppBridge()
 await syncBoardsFromDevelopmentServer()
+void publishBoardsForSimulator()
 
 const listScreen = new TextContainerProperty({
   xPosition: 8, yPosition: 8, width: 560, height: 272,
