@@ -17,7 +17,7 @@
       "onAutoForward": "notify"
     }
   },
-  "postCreateCommand": "npm install && sudo npm install -g @evenrealities/evenhub-cli @evenrealities/evenhub-simulator",
+  "postCreateCommand": "bash -lc 'if ! command -v npm >/dev/null; then sudo apt-get update && sudo apt-get install -y curl ca-certificates && curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-get install -y nodejs; fi; npm install && sudo npm install -g @evenrealities/evenhub-cli @evenrealities/evenhub-simulator'",
   "customizations": {
     "vscode": {
       "settings": {
