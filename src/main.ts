@@ -514,8 +514,8 @@ function replyPages(article: Article): ReplyPageLayout[] {
     const entryTimes = [reply.time.trim().padStart(12), ...bodyLines.map(() => '')]
     const entryBytes = encoder.encode(entryLeft.join('\n')).length
 
-    // 每頁只放完整貼文；很長的單則推文仍單獨放一頁，不與下一則混合。
-    if (leftLines.length > 0 && (bytes + entryBytes > 860 || leftLines.length + entryLeft.length > 9)) {
+    // 面板可完整顯示 7 行；先判斷整則推文是否放得下，絕不裁掉底部或拆成兩頁。
+    if (leftLines.length > 0 && (bytes + entryBytes > 860 || leftLines.length + entryLeft.length > 7)) {
       pages.push({ left: leftLines.join('\n'), times: timeLines.join('\n') })
       leftLines = []
       timeLines = []
