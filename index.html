@@ -22,15 +22,63 @@
       small { margin-top: 5px; overflow: hidden; color: #9aa5ba; text-overflow: ellipsis; white-space: nowrap; }
       .board-setting-row button { width: auto; padding: 9px 12px; background: #373255; color: #c7baff; }
       .hint { margin: 20px 0 0; color: #9aa5ba; line-height: 1.5; }
+      #simulator { display:none; max-width:620px; margin:auto; padding:20px 16px 36px; }
+      #simulator h1 { font-size:22px; margin:0 0 8px; letter-spacing:0; }
+      .sim-lead, .sim-state { color:#aab0bc; line-height:1.5; }
+      .sim-state { font-size:13px; margin:10px 0 16px; }
+      .glasses { width:100%; aspect-ratio:2/1; object-fit:contain; background:#000; border:1px solid #374151; border-radius:12px; }
+      .keys { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+      .keys .wide { grid-column:span 3; }
     </style>
   </head>
   <body>
-    <main>
+    <main id="settings-page">
       <h1>Even PTT Reader</h1>
       <p class="lead">管理眼鏡上要顯示的 PTT 看板</p>
       <section id="settings" class="card"></section>
       <p class="hint">設定會保存在這支手機的 Even Hub 裡。眼鏡重新開啟閱讀器後，會先顯示看板選單。</p>
     </main>
-    <script type="module" src="/src/main.ts"></script>
+    <main id="simulator">
+      <h1>Even PTT Reader — 眼鏡模擬</h1>
+      <p class="sim-lead">畫面每秒自動更新。</p>
+      <img id="glasses" class="glasses" alt="眼鏡模擬畫面" />
+      <div id="state" class="sim-state">連線中…</div>
+      <div class="keys">
+        <button data-action="up">上滑</button>
+        <button data-action="click">單擊</button>
+        <button data-action="down">下滑</button>
+        <button class="wide" data-action="double_click">雙擊返回</button>
+      </div>
+    </main>
+    <script type="module">
+      if (location.pathname === '/simulator') {
+        document.querySelector('#settings-page').style.display = 'none'
+        document.querySelector('#simulator').style.display = 'block'
+        const image = document.querySelector('#glasses')
+        const state = document.querySelector('#state')
+        async function refresh() {
+          try {
+            const ping = await fetch('/sim/api/ping')
+            if (!ping.ok) throw new Error('simulator unavailable')
+            image.src = '/sim/api/screenshot/glasses?t=' + Date.now()
+            state.textContent = '模擬器已連線'
+          } catch {
+            state.textContent = '等待模擬器啟動…'
+          }
+        }
+        document.querySelectorAll('[data-action]').forEach((button) => button.addEventListener('click', async () => {
+          await fetch('/sim/api/input', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: button.dataset.action }),
+          })
+          setTimeout(refresh, 180)
+        }))
+        refresh()
+        setInterval(refresh, 1000)
+      } else {
+        import('/src/main.ts')
+      }
+    </script>
   </body>
 </html>
