@@ -35,7 +35,7 @@ const BOARD_STORE = 'even-ptt-reader-boards-v1'
 const ROWS = 9
 const LIKE_WIDTH = 3
 // 以中文最寬字形計算，避免任何一列自動換行。
-const TITLE_WIDTH = 48
+const TITLE_WIDTH = 42
 const TIME_WIDTH = 5
 
 let articles: Article[] = []
@@ -121,7 +121,7 @@ const listScreen = new TextContainerProperty({
   isEventCapture: 1,
 })
 const listTitles = new TextContainerProperty({
-  xPosition: 86, yPosition: 8, width: 420, height: 272,
+  xPosition: 86, yPosition: 8, width: 408, height: 272,
   borderWidth: 0, borderColor: 0, paddingLength: 0,
   containerID: 2, containerName: 'titles', content: '',
   isEventCapture: 0,
@@ -379,7 +379,7 @@ function renderList(message?: string): void {
     return value.trimStart().startsWith('-') ? value : ''
   })
 
-  // 所有欄位各 7 行（標頭＋6 列），不再讓捕捉框產生可見捲動條。
+  // 固定為標頭加 9 列；各列的文字已先截斷，避免自動換行。
   void bridge.textContainerUpgrade(new TextContainerUpgrade({
     containerID: 1, containerName: 'board', content: ['', ...cursors].join('\n'),
   }))
