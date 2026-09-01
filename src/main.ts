@@ -42,8 +42,9 @@ const LIKE_WIDTH = 3
 // 以中文最寬字形計算，避免任何一列自動換行。
 const TITLE_WIDTH = 38
 const TIME_WIDTH = 5
-const IMAGE_WIDTH = 288
-const IMAGE_HEIGHT = 144
+// 模擬器與目前 Even App 實際接受的上限是 200 × 100。
+const IMAGE_WIDTH = 200
+const IMAGE_HEIGHT = 100
 const imageCache = new Map<string, Uint8Array>()
 
 let articles: Article[] = []
@@ -647,8 +648,8 @@ async function renderArticle(article: Article): Promise<void> {
   if (isBody) {
     if (readingPage.kind === 'image') {
       const image = new ImageContainerProperty({
-        xPosition: 144, yPosition: 84, width: IMAGE_WIDTH, height: IMAGE_HEIGHT,
-        containerID: 3, containerName: 'inline-image', zOrderIndex: 1,
+        xPosition: 188, yPosition: 104, width: IMAGE_WIDTH, height: IMAGE_HEIGHT,
+        containerID: 3, containerName: 'inline-image',
       })
       const rebuilt = await bridge.rebuildPageContainer({
         containerTotalNum: 3, textObject: [title, panel], imageObject: [image],
