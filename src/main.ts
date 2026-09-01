@@ -42,10 +42,12 @@ const LIKE_WIDTH = 3
 // 以中文最寬字形計算，避免任何一列自動換行。
 const TITLE_WIDTH = 38
 const TIME_WIDTH = 5
-// 模擬器與目前 Even App 實際接受的上限是 200 × 100。
-const IMAGE_WIDTH = 200
-const IMAGE_HEIGHT = 100
-const imageCache = new Map<string, Uint8Array>()
+// 單一容器上限是 200 × 100；用 2 × 2 容器拼成 400 × 180 大圖。
+const IMAGE_WIDTH = 400
+const IMAGE_HEIGHT = 180
+const IMAGE_TILE_WIDTH = 200
+const IMAGE_TILE_HEIGHT = 90
+const imageCache = new Map<string, Uint8Array[]>()
 const imageSourceCache = new Map<string, Blob>()
 
 let articles: Article[] = []
@@ -360,7 +362,7 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   })
 }
 
-async function imageToEvenPng(url: string): Promise<Uint8Array> {
+async function imageToEvenPng(url: string): Promise<Uint8Array[]> {
   const cached = imageCache.get(url)
   if (cached) return cached
 
@@ -412,7 +414,22 @@ async function imageToEvenPng(url: string): Promise<Uint8Array> {
       pixels.data[index + 3] = 255
     }
     context.putImageData(pixels, 0, 0)
-    const encoded = new Uint8Array(await (await canvasToBlob(canvas)).arrayBuffer())
+    const encoded: Uint8Array[] = []
+    for (let row = 0; row < 2; row += 1) {
+      for (let column = 0; column < 2; column += 1) {
+        const tile = document.createElement('canvas')
+        tile.width = IMAGE_TILE_WIDTH
+        tile.height = IMAGE_TILE_HEIGHT
+        const tileContext = tile.getContext('2d')
+        if (!tileContext) throw new Error('無法切割圖片')
+        tileContext.drawImage(
+          canvas,
+          column * IMAGE_TILE_WIDTH, row * IMAGE_TILE_HEIGHT, IMAGE_TILE_WIDTH, IMAGE_TILE_HEIGHT,
+          0, 0, IMAGE_TILE_WIDTH, IMAGE_TILE_HEIGHT,
+        )
+        encoded.push(new Uint8Array(await (await canvasToBlob(tile)).arrayBuffer()))
+      }
+    }
     if (imageCache.size >= 8) imageCache.delete(imageCache.keys().next().value!)
     imageCache.set(url, encoded)
     return encoded
@@ -659,20 +676,24 @@ async function renderArticle(article: Article): Promise<void> {
 
   if (isBody) {
     if (readingPage.kind === 'image') {
-      const image = new ImageContainerProperty({
-        xPosition: 188, yPosition: 104, width: IMAGE_WIDTH, height: IMAGE_HEIGHT,
-        containerID: 3, containerName: 'inline-image',
-      })
+      const imageTiles = [
+        new ImageContainerProperty({ xPosition: 88, yPosition: 84, width: IMAGE_TILE_WIDTH, height: IMAGE_TILE_HEIGHT, containerID: 3, containerName: 'inline-image-0' }),
+        new ImageContainerProperty({ xPosition: 288, yPosition: 84, width: IMAGE_TILE_WIDTH, height: IMAGE_TILE_HEIGHT, containerID: 4, containerName: 'inline-image-1' }),
+        new ImageContainerProperty({ xPosition: 88, yPosition: 174, width: IMAGE_TILE_WIDTH, height: IMAGE_TILE_HEIGHT, containerID: 5, containerName: 'inline-image-2' }),
+        new ImageContainerProperty({ xPosition: 288, yPosition: 174, width: IMAGE_TILE_WIDTH, height: IMAGE_TILE_HEIGHT, containerID: 6, containerName: 'inline-image-3' }),
+      ]
       const rebuilt = await bridge.rebuildPageContainer({
-        containerTotalNum: 3, textObject: [title, panel], imageObject: [image],
+        containerTotalNum: 6, textObject: [title, panel], imageObject: imageTiles,
       } as RebuildPageContainer)
       if (!rebuilt) throw new Error('圖片頁配置被 Even 拒絕')
       try {
         const imageData = await imageToEvenPng(readingPage.url)
         if (page === 'article' && activeArticle === article && articleView === 'body' && articleReadingPages(article)[articleTextPage]?.kind === 'image') {
-          await bridge.updateImageRawData(new ImageRawDataUpdate({
-            containerID: 3, containerName: 'inline-image', imageData,
-          }))
+          for (let index = 0; index < imageData.length; index += 1) {
+            await bridge.updateImageRawData(new ImageRawDataUpdate({
+              containerID: 3 + index, containerName: `inline-image-${index}`, imageData: imageData[index],
+            }))
+          }
           await bridge.textContainerUpgrade(new TextContainerUpgrade({
             containerID: 2, containerName: 'reader', content: `圖片 · 本文 ${articleTextPage + 1}/${articleReadingPages(article).length}`,
           }))
