@@ -1,29 +1,13 @@
 {
   "name": "Even PTT Reader Simulator",
-  "build": {
-    "dockerfile": "Dockerfile"
-  },
-  "forwardPorts": [
-    5173,
-    9898
-  ],
+  "build": { "dockerfile": "Dockerfile" },
+  "forwardPorts": [5173, 9898],
   "portsAttributes": {
-    "5173": {
-      "label": "PTT Reader phone webview",
-      "onAutoForward": "notify"
-    },
-    "9898": {
-      "label": "Even simulator control and screenshots",
-      "onAutoForward": "notify"
-    }
+    "5173": { "label": "PTT Reader phone webview", "onAutoForward": "notify" },
+    "9898": { "label": "Even simulator control and screenshots", "onAutoForward": "notify" }
   },
-  "postCreateCommand": "bash -lc 'if ! command -v npm >/dev/null; then sudo apt-get update && sudo apt-get install -y curl ca-certificates && curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-get install -y nodejs; fi; npm install && sudo npm install -g @evenrealities/evenhub-cli @evenrealities/evenhub-simulator'",
-  "customizations": {
-    "vscode": {
-      "settings": {
-        "terminal.integrated.defaultProfile.linux": "bash"
-      }
-    }
-  },
-  "postStartCommand": "bash -lc 'if ! pgrep -f \"[v]ite\" >/dev/null; then nohup npm run dev -- --host 0.0.0.0 >/tmp/even-ptt-vite.log 2>&1 & fi; if ! pgrep -f \"[e]venhub-simulator\" >/dev/null; then sleep 3; nohup npm run sim:headless >/tmp/even-ptt-simulator.log 2>&1 & fi'"
+  "postCreateCommand": "bash -lc 'npm install && sudo npm install -g @evenrealities/evenhub-cli @evenrealities/evenhub-simulator'",
+  "postStartCommand": "bash -lc 'nohup npm run dev -- --host 0.0.0.0 >/tmp/even-ptt-vite.log 2>&1 & sleep 5; nohup npm run sim:headless >/tmp/even-ptt-simulator.log 2>&1 &'",
+  "postAttachCommand": "bash -lc 'pgrep -f "vite.*5173" >/dev/null || nohup npm run dev -- --host 0.0.0.0 >/tmp/even-ptt-vite.log 2>&1 & sleep 3; pgrep -f "evenhub-simulator" >/dev/null || nohup npm run sim:headless >/tmp/even-ptt-simulator.log 2>&1 &'",
+  "customizations": { "vscode": { "settings": { "terminal.integrated.defaultProfile.linux": "bash" } } }
 }
