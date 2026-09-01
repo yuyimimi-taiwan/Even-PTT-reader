@@ -1,5 +1,7 @@
 import {
   CreateStartUpPageContainer,
+  ImageContainerProperty,
+  ImageRawDataUpdate,
   OsEventTypeList,
   TextContainerProperty,
   TextContainerUpgrade,
@@ -28,6 +30,9 @@ type ReplyPageLayout = {
   left: string
   times: string
 }
+type ArticleReadingPage =
+  | { kind: 'text'; content: string }
+  | { kind: 'image'; url: string }
 
 const PROXY = 'https://cloudflare-cors-anywhere.yuyimimi.workers.dev/'
 const DEFAULT_BOARDS: Board[] = [{ name: '棒球版', url: 'https://www.ptt.cc/bbs/Baseball/index.html' }]
@@ -37,6 +42,8 @@ const LIKE_WIDTH = 3
 // 以中文最寬字形計算，避免任何一列自動換行。
 const TITLE_WIDTH = 38
 const TIME_WIDTH = 5
+const IMAGE_WIDTH = 288
+const IMAGE_HEIGHT = 144
 
 let articles: Article[] = []
 let selected = 0
@@ -321,6 +328,76 @@ function textPages(text: string, maxBytes: number): string[] {
   return pages
 }
 
+function articleReadingPages(article: Article): ArticleReadingPage[] {
+  const body = article.body || '(沒有可顯示的本文)'
+  const imagePattern = /https?:\/\/[^\s<>"']+?\.(?:png|jpe?g|webp|gif)(?:\?[^\s<>"']*)?/gi
+  const pages: ArticleReadingPage[] = []
+  let cursor = 0
+
+  for (const match of body.matchAll(imagePattern)) {
+    const index = match.index ?? 0
+    const before = body.slice(cursor, index).trim()
+    if (before) {
+      for (const content of textPages(before, 700)) pages.push({ kind: 'text', content })
+    }
+    pages.push({ kind: 'image', url: match[0] })
+    cursor = index + match[0].length
+  }
+
+  const after = body.slice(cursor).trim()
+  if (after) {
+    for (const content of textPages(after, 700)) pages.push({ kind: 'text', content })
+  }
+  return pages.length ? pages : [{ kind: 'text', content: '(沒有可顯示的本文)' }]
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('圖片轉換失敗')), 'image/png')
+  })
+}
+
+async function imageToEvenPng(url: string): Promise<Uint8Array> {
+  const response = await fetch(proxied(url))
+  if (!response.ok) throw new Error(`圖片下載失敗：${response.status}`)
+  const sourceBlob = await response.blob()
+  const sourceUrl = URL.createObjectURL(sourceBlob)
+
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image()
+      element.onload = () => resolve(element)
+      element.onerror = () => reject(new Error('這個網址不是可讀取的圖片'))
+      element.src = sourceUrl
+    })
+    const canvas = document.createElement('canvas')
+    canvas.width = IMAGE_WIDTH
+    canvas.height = IMAGE_HEIGHT
+    const context = canvas.getContext('2d', { willReadFrequently: true })
+    if (!context) throw new Error('無法建立圖片畫布')
+
+    context.fillStyle = '#000'
+    context.fillRect(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT)
+    const scale = Math.min(IMAGE_WIDTH / image.naturalWidth, IMAGE_HEIGHT / image.naturalHeight)
+    const width = Math.max(1, Math.round(image.naturalWidth * scale))
+    const height = Math.max(1, Math.round(image.naturalHeight * scale))
+    context.drawImage(image, Math.floor((IMAGE_WIDTH - width) / 2), Math.floor((IMAGE_HEIGHT - height) / 2), width, height)
+
+    const pixels = context.getImageData(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT)
+    for (let index = 0; index < pixels.data.length; index += 4) {
+      const gray = Math.round((pixels.data[index] * 0.299 + pixels.data[index + 1] * 0.587 + pixels.data[index + 2] * 0.114) / 17) * 17
+      pixels.data[index] = gray
+      pixels.data[index + 1] = gray
+      pixels.data[index + 2] = gray
+      pixels.data[index + 3] = 255
+    }
+    context.putImageData(pixels, 0, 0)
+    return new Uint8Array(await (await canvasToBlob(canvas)).arrayBuffer())
+  } finally {
+    URL.revokeObjectURL(sourceUrl)
+  }
+}
+
 function textPage(text: string, pageNumber: number, maxBytes: number): { content: string; total: number } {
   const pages = textPages(text, maxBytes)
   const current = Math.max(0, Math.min(pages.length - 1, pageNumber))
@@ -534,7 +611,8 @@ function replyPages(article: Article): ReplyPageLayout[] {
 
 async function renderArticle(article: Article): Promise<void> {
   const isBody = articleView === 'body'
-  const bodyPage = textPage(article.body || '(沒有可顯示的本文)', articleTextPage, 700)
+  const readingPages = articleReadingPages(article)
+  const readingPage = readingPages[Math.min(articleTextPage, readingPages.length - 1)]
   const replyLayouts = replyPages(article)
   const replyLayout = replyLayouts[Math.min(replyTextPage, replyLayouts.length - 1)]
 
@@ -549,12 +627,41 @@ async function renderArticle(article: Article): Promise<void> {
     borderWidth: 1, borderColor: 8, paddingLength: 6,
     containerID: 2, containerName: 'reader',
     content: isBody
-      ? `本文 ${articleTextPage + 1}/${bodyPage.total}\n${bodyPage.content}`
+      ? readingPage.kind === 'image'
+        ? `圖片 · 本文 ${articleTextPage + 1}/${readingPages.length}\n\n讀取中…`
+        : `本文 ${articleTextPage + 1}/${readingPages.length}\n${readingPage.content}`
       : `推文 ${replyTextPage + 1}/${replyLayouts.length}`,
     textColor: isBody ? 3 : 2, isEventCapture: 1,
   })
 
   if (isBody) {
+    if (readingPage.kind === 'image') {
+      const image = new ImageContainerProperty({
+        xPosition: 144, yPosition: 84, width: IMAGE_WIDTH, height: IMAGE_HEIGHT,
+        containerID: 3, containerName: 'inline-image', zOrderIndex: 1,
+      })
+      const rebuilt = await bridge.rebuildPageContainer({
+        containerTotalNum: 3, textObject: [title, panel], imageObject: [image],
+      } as RebuildPageContainer)
+      if (!rebuilt) throw new Error('圖片頁配置被 Even 拒絕')
+      try {
+        const imageData = await imageToEvenPng(readingPage.url)
+        if (page === 'article' && activeArticle === article && articleView === 'body' && articleReadingPages(article)[articleTextPage]?.kind === 'image') {
+          await bridge.updateImageRawData(new ImageRawDataUpdate({
+            containerID: 3, containerName: 'inline-image', imageData,
+          }))
+          await bridge.textContainerUpgrade(new TextContainerUpgrade({
+            containerID: 2, containerName: 'reader', content: `圖片 · 本文 ${articleTextPage + 1}/${readingPages.length}`,
+          }))
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '未知錯誤'
+        await bridge.textContainerUpgrade(new TextContainerUpgrade({
+          containerID: 2, containerName: 'reader', content: `圖片無法載入\n${clip(message, 28)}`,
+        }))
+      }
+      return
+    }
     const rebuilt = await bridge.rebuildPageContainer({
       containerTotalNum: 2, textObject: [title, panel],
     } as RebuildPageContainer)
@@ -584,7 +691,7 @@ async function renderArticle(article: Article): Promise<void> {
 async function moveArticlePage(step: number): Promise<void> {
   if (!activeArticle) return
   const last = articleView === 'body'
-    ? Math.max(0, textPages(activeArticle.body || '', 700).length - 1)
+    ? Math.max(0, articleReadingPages(activeArticle).length - 1)
     : replyPages(activeArticle).length - 1
   const current = articleView === 'body' ? articleTextPage : replyTextPage
   const next = Math.max(0, Math.min(last, current + step))
