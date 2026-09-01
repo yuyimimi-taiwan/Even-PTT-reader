@@ -1,12 +1,11 @@
 {
-  "name": "Even Hub development",
-  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
-  "postCreateCommand": "npm install && npm install -g @evenrealities/evenhub-cli @evenrealities/evenhub-simulator",
-  "forwardPorts": [5173],
+  "name": "Even PTT Reader Simulator",
+  "build": { "dockerfile": "Dockerfile" },
+  "forwardPorts": [5173, 9898],
   "portsAttributes": {
-    "5173": {
-      "label": "Vite development server",
-      "onAutoForward": "openPreview"
-    }
-  }
+    "5173": { "label": "PTT Reader phone webview", "onAutoForward": "notify" },
+    "9898": { "label": "Even simulator control and screenshots", "onAutoForward": "notify" }
+  },
+  "postCreateCommand": "npm install && sudo npm install -g @evenrealities/evenhub-cli @evenrealities/evenhub-simulator",
+  "customizations": { "vscode": { "settings": { "terminal.integrated.defaultProfile.linux": "bash" } } }
 }
