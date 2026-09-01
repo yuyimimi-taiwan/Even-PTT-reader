@@ -32,7 +32,7 @@ type ReplyPageLayout = {
 }
 type ArticleReadingPage =
   | { kind: 'text'; content: string }
-  | { kind: 'image'; url: string }
+  | { kind: 'image'; url: string; part: number; partTotal: number }
 
 const PROXY = 'https://cloudflare-cors-anywhere.yuyimimi.workers.dev/'
 const DEFAULT_BOARDS: Board[] = [{ name: '棒球版', url: 'https://www.ptt.cc/bbs/Baseball/index.html' }]
@@ -46,6 +46,8 @@ const TIME_WIDTH = 5
 const IMAGE_WIDTH = 200
 const IMAGE_HEIGHT = 100
 const imageCache = new Map<string, Uint8Array>()
+const imagePartCounts = new Map<string, number>()
+const imageSourceCache = new Map<string, Blob>()
 
 let articles: Article[] = []
 let selected = 0
@@ -342,7 +344,8 @@ function articleReadingPages(article: Article): ArticleReadingPage[] {
     if (before) {
       for (const content of textPages(before, 700)) pages.push({ kind: 'text', content })
     }
-    pages.push({ kind: 'image', url: match[0] })
+    const partTotal = imagePartCounts.get(match[0]) || 1
+    for (let part = 0; part < partTotal; part += 1) pages.push({ kind: 'image', url: match[0], part, partTotal })
     cursor = index + match[0].length
   }
 
@@ -359,15 +362,25 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   })
 }
 
-async function imageToEvenPng(url: string): Promise<Uint8Array> {
-  const cached = imageCache.get(url)
-  if (cached) return cached
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 8_000)
-  const response = await fetch(proxied(url), { signal: controller.signal })
-  clearTimeout(timeout)
-  if (!response.ok) throw new Error(`圖片下載失敗：${response.status}`)
-  const sourceBlob = await response.blob()
+async function imageToEvenPng(url: string, part: number): Promise<{ imageData: Uint8Array; partTotal: number }> {
+  const cacheKey = `${url}#${part}`
+  const cached = imageCache.get(cacheKey)
+  const knownPartTotal = imagePartCounts.get(url) || 1
+  if (cached) return { imageData: cached, partTotal: knownPartTotal }
+
+  let sourceBlob = imageSourceCache.get(url)
+  if (!sourceBlob) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 8_000)
+    try {
+      const response = await fetch(proxied(url), { signal: controller.signal })
+      if (!response.ok) throw new Error(`圖片下載失敗：${response.status}`)
+      sourceBlob = await response.blob()
+      imageSourceCache.set(url, sourceBlob)
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
   const sourceUrl = URL.createObjectURL(sourceBlob)
 
   try {
@@ -385,10 +398,18 @@ async function imageToEvenPng(url: string): Promise<Uint8Array> {
 
     context.fillStyle = '#000'
     context.fillRect(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT)
-    const scale = Math.min(IMAGE_WIDTH / image.naturalWidth, IMAGE_HEIGHT / image.naturalHeight)
+    const portrait = image.naturalHeight > image.naturalWidth
+    const scale = portrait
+      ? IMAGE_WIDTH / image.naturalWidth
+      : Math.min(IMAGE_WIDTH / image.naturalWidth, IMAGE_HEIGHT / image.naturalHeight)
     const width = Math.max(1, Math.round(image.naturalWidth * scale))
     const height = Math.max(1, Math.round(image.naturalHeight * scale))
-    context.drawImage(image, Math.floor((IMAGE_WIDTH - width) / 2), Math.floor((IMAGE_HEIGHT - height) / 2), width, height)
+    const partTotal = portrait ? Math.max(1, Math.ceil(height / IMAGE_HEIGHT)) : 1
+    imagePartCounts.set(url, partTotal)
+    const safePart = Math.min(part, partTotal - 1)
+    const x = Math.floor((IMAGE_WIDTH - width) / 2)
+    const y = portrait ? -safePart * IMAGE_HEIGHT : Math.floor((IMAGE_HEIGHT - height) / 2)
+    context.drawImage(image, x, y, width, height)
 
     const pixels = context.getImageData(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT)
     for (let index = 0; index < pixels.data.length; index += 4) {
@@ -402,9 +423,9 @@ async function imageToEvenPng(url: string): Promise<Uint8Array> {
     }
     context.putImageData(pixels, 0, 0)
     const encoded = new Uint8Array(await (await canvasToBlob(canvas)).arrayBuffer())
-    if (imageCache.size >= 6) imageCache.delete(imageCache.keys().next().value!)
-    imageCache.set(url, encoded)
-    return encoded
+    if (imageCache.size >= 8) imageCache.delete(imageCache.keys().next().value!)
+    imageCache.set(cacheKey, encoded)
+    return { imageData: encoded, partTotal }
   } finally {
     URL.revokeObjectURL(sourceUrl)
   }
@@ -657,13 +678,17 @@ async function renderArticle(article: Article): Promise<void> {
       } as RebuildPageContainer)
       if (!rebuilt) throw new Error('圖片頁配置被 Even 拒絕')
       try {
-        const imageData = await imageToEvenPng(readingPage.url)
+        const loadedImage = await imageToEvenPng(readingPage.url, readingPage.part)
         if (page === 'article' && activeArticle === article && articleView === 'body' && articleReadingPages(article)[articleTextPage]?.kind === 'image') {
           await bridge.updateImageRawData(new ImageRawDataUpdate({
-            containerID: 3, containerName: 'inline-image', imageData,
+            containerID: 3, containerName: 'inline-image', imageData: loadedImage.imageData,
           }))
+          const currentPage = articleReadingPages(article)[articleTextPage]
+          const partLabel = currentPage?.kind === 'image' && loadedImage.partTotal > 1
+            ? ` · 圖 ${currentPage.part + 1}/${loadedImage.partTotal}`
+            : ''
           await bridge.textContainerUpgrade(new TextContainerUpgrade({
-            containerID: 2, containerName: 'reader', content: `圖片 · 本文 ${articleTextPage + 1}/${readingPages.length}`,
+            containerID: 2, containerName: 'reader', content: `圖片${partLabel} · 本文 ${articleTextPage + 1}/${articleReadingPages(article).length}`,
           }))
         }
       } catch (error) {
