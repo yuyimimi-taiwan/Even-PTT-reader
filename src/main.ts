@@ -44,6 +44,7 @@ const TITLE_WIDTH = 38
 const TIME_WIDTH = 5
 const IMAGE_WIDTH = 288
 const IMAGE_HEIGHT = 144
+const imageCache = new Map<string, Uint8Array>()
 
 let articles: Article[] = []
 let selected = 0
@@ -358,7 +359,12 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
 }
 
 async function imageToEvenPng(url: string): Promise<Uint8Array> {
-  const response = await fetch(proxied(url))
+  const cached = imageCache.get(url)
+  if (cached) return cached
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 8_000)
+  const response = await fetch(proxied(url), { signal: controller.signal })
+  clearTimeout(timeout)
   if (!response.ok) throw new Error(`圖片下載失敗：${response.status}`)
   const sourceBlob = await response.blob()
   const sourceUrl = URL.createObjectURL(sourceBlob)
@@ -385,14 +391,18 @@ async function imageToEvenPng(url: string): Promise<Uint8Array> {
 
     const pixels = context.getImageData(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT)
     for (let index = 0; index < pixels.data.length; index += 4) {
-      const gray = Math.round((pixels.data[index] * 0.299 + pixels.data[index + 1] * 0.587 + pixels.data[index + 2] * 0.114) / 17) * 17
+      // 限制為 4 階灰階，能保留輪廓，同時大幅縮小傳往眼鏡的資料量。
+      const gray = Math.round((pixels.data[index] * 0.299 + pixels.data[index + 1] * 0.587 + pixels.data[index + 2] * 0.114) / 85) * 85
       pixels.data[index] = gray
       pixels.data[index + 1] = gray
       pixels.data[index + 2] = gray
       pixels.data[index + 3] = 255
     }
     context.putImageData(pixels, 0, 0)
-    return new Uint8Array(await (await canvasToBlob(canvas)).arrayBuffer())
+    const encoded = new Uint8Array(await (await canvasToBlob(canvas)).arrayBuffer())
+    if (imageCache.size >= 6) imageCache.delete(imageCache.keys().next().value!)
+    imageCache.set(url, encoded)
+    return encoded
   } finally {
     URL.revokeObjectURL(sourceUrl)
   }
