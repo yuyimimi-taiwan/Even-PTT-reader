@@ -7,7 +7,10 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "pack": "npm run build && evenhub pack app.json dist -o even-ptt-reader.ehpk"
+    "pack": "npm run build && evenhub pack app.json dist -o even-ptt-reader.ehpk",
+    "sim": "evenhub-simulator http://127.0.0.1:5173 --automation-port 9898",
+    "sim:headless": "xvfb-run -a evenhub-simulator http://127.0.0.1:5173 --automation-port 9898 --no-glow",
+    "dev:sim": "npm run dev"
   },
   "dependencies": {
     "@evenrealities/even_hub_sdk": "latest"
