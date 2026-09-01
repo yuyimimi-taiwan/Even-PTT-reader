@@ -51,7 +51,7 @@
       </div>
     </main>
     <script type="module">
-      if (location.pathname === '/simulator') {
+      if (location.pathname === '/simulator' || location.search.includes('simulator')) {
         document.querySelector('#settings-page').style.display = 'none'
         document.querySelector('#simulator').style.display = 'block'
         const image = document.querySelector('#glasses')
