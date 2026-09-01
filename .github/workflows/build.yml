@@ -15,8 +15,8 @@ jobs:
         with:
           node-version: 22
       - run: npm install
-      - run: npm install -g @evenrealities/evenhub-cli
-      - run: npm run pack
+      - run: npm run build
+      - run: npx --yes @evenrealities/evenhub-cli pack app.json dist -o even-ptt-reader.ehpk
       - uses: actions/upload-artifact@v4
         with:
           name: Even-PTT-reader
