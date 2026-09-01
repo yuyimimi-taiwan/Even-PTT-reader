@@ -35,7 +35,7 @@ const BOARD_STORE = 'even-ptt-reader-boards-v1'
 const ROWS = 9
 const LIKE_WIDTH = 3
 // 以中文最寬字形計算，避免任何一列自動換行。
-const TITLE_WIDTH = 34
+const TITLE_WIDTH = 48
 const TIME_WIDTH = 5
 
 let articles: Article[] = []
