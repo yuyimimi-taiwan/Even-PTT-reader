@@ -392,8 +392,8 @@ async function imageToEvenPng(url: string): Promise<Uint8Array> {
 
     const pixels = context.getImageData(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT)
     for (let index = 0; index < pixels.data.length; index += 4) {
-      // 限制為 4 階灰階，能保留輪廓，同時大幅縮小傳往眼鏡的資料量。
-      const gray = Math.round((pixels.data[index] * 0.299 + pixels.data[index + 1] * 0.587 + pixels.data[index + 2] * 0.114) / 85) * 85
+      // 8 階灰階兼顧照片細節與藍牙傳輸速度。
+      const gray = Math.round((pixels.data[index] * 0.299 + pixels.data[index + 1] * 0.587 + pixels.data[index + 2] * 0.114) / 36) * 36
       pixels.data[index] = gray
       pixels.data[index + 1] = gray
       pixels.data[index + 2] = gray
