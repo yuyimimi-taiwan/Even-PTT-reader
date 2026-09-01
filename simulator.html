@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Even PTT Reader Simulator</title>
+  <style>
+    body { margin:0; min-height:100vh; background:#111; color:#f2f2f2; font-family:-apple-system,BlinkMacSystemFont,sans-serif; }
+    main { max-width:620px; margin:auto; padding:20px 16px 36px; }
+    h1 { font-size:22px; margin:0 0 8px; } p { color:#aab0bc; line-height:1.5; }
+    .glasses { width:100%; aspect-ratio:2/1; object-fit:contain; background:#000; border:1px solid #374151; border-radius:12px; image-rendering:auto; }
+    .state { font-size:13px; color:#9ca3af; margin:10px 0 16px; }
+    .keys { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+    button { padding:15px 8px; font:inherit; font-weight:650; color:#fff; background:#353b4b; border:0; border-radius:12px; }
+    button:active { background:#6d5dfc; } .wide { grid-column:span 3; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Even PTT Reader — 眼鏡模擬</h1>
+    <p>這是模擬器的眼鏡畫面；畫面每秒自動更新。</p>
+    <img id="glasses" class="glasses" alt="眼鏡模擬畫面" />
+    <div id="state" class="state">連線中…</div>
+    <div class="keys">
+      <button data-action="up">上滑</button>
+      <button data-action="click">單擊</button>
+      <button data-action="down">下滑</button>
+      <button data-action="double_click">雙擊返回</button>
+      <button data-action="long_press">長按開始</button>
+      <button data-action="long_press_release">放開長按</button>
+    </div>
+  </main>
+  <script>
+    const image = document.querySelector('#glasses')
+    const state = document.querySelector('#state')
+    async function refresh() {
+      try {
+        const ping = await fetch('/sim/api/ping')
+        if (!ping.ok) throw new Error('simulator unavailable')
+        image.src = '/sim/api/screenshot/glasses?t=' + Date.now()
+        state.textContent = '模擬器已連線'
+      } catch {
+        state.textContent = '等待模擬器啟動…'
+      }
+    }
+    document.querySelectorAll('button').forEach((button) => button.addEventListener('click', async () => {
+      await fetch('/sim/api/input', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: button.dataset.action }),
+      })
+      setTimeout(refresh, 180)
+    }))
+    refresh()
+    setInterval(refresh, 1000)
+  </script>
+</body>
+</html>
