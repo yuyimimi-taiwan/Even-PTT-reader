@@ -260,14 +260,18 @@ function parseArticle(article: Article, html: string): Article {
   const content = document.querySelector<HTMLElement>('#main-content')
   if (!content) throw new Error('找不到文章內容')
 
-  const replies = Array.from(content.querySelectorAll<HTMLElement>('.push')).map((push) => ({
-    mark: push.querySelector('.push-tag')?.textContent?.trim() || '→',
-    author: push.querySelector('.push-userid')?.textContent?.trim() || '?',
-    time: push.querySelector('.push-ipdatetime')?.textContent?.trim() || '',
-    content: (push.querySelector('.push-content')?.textContent || '')
-      .replace(/^:\s*/, '')
-      .trim(),
-  }))
+  const replies = Array.from(content.querySelectorAll<HTMLElement>('.push')).map((push) => {
+    const rawTime = push.querySelector('.push-ipdatetime')?.textContent?.trim() || ''
+    const time = rawTime.match(/(\d{2}\/\d{2}\s+\d{2}:\d{2})\s*$/)?.[1] || rawTime
+    return {
+      mark: push.querySelector('.push-tag')?.textContent?.trim() || '→',
+      author: push.querySelector('.push-userid')?.textContent?.trim() || '?',
+      time,
+      content: (push.querySelector('.push-content')?.textContent || '')
+        .replace(/^:\s*/, '')
+        .trim(),
+    }
+  })
 
   const bodyNode = content.cloneNode(true) as HTMLElement
   bodyNode.querySelectorAll('.article-metaline, .article-metaline-right, .push').forEach((node) => node.remove())
@@ -405,9 +409,9 @@ async function imageToEvenPng(url: string): Promise<Uint8Array[]> {
 
     const pixels = context.getImageData(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT)
     for (let index = 0; index < pixels.data.length; index += 4) {
-      // 128 階灰階，盡可能保留照片層次。
+      // 256 階灰階，保留原始亮度層次。
       const luminance = pixels.data[index] * 0.299 + pixels.data[index + 1] * 0.587 + pixels.data[index + 2] * 0.114
-      const gray = Math.round(Math.round(luminance / (255 / 127)) * (255 / 127))
+      const gray = Math.round(luminance)
       pixels.data[index] = gray
       pixels.data[index + 1] = gray
       pixels.data[index + 2] = gray
