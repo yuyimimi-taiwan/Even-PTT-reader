@@ -8,6 +8,6 @@
   },
   "postCreateCommand": "bash -lc 'npm install && sudo npm install -g @evenrealities/evenhub-cli @evenrealities/evenhub-simulator'",
   "postStartCommand": "bash -lc 'nohup npm run dev -- --host 0.0.0.0 >/tmp/even-ptt-vite.log 2>&1 & sleep 5; nohup npm run sim:headless >/tmp/even-ptt-simulator.log 2>&1 &'",
-  "postAttachCommand": "bash -lc 'pgrep -f "vite.*5173" >/dev/null || nohup npm run dev -- --host 0.0.0.0 >/tmp/even-ptt-vite.log 2>&1 & sleep 3; pgrep -f "evenhub-simulator" >/dev/null || nohup npm run sim:headless >/tmp/even-ptt-simulator.log 2>&1 &'",
+  "postAttachCommand": "bash -lc 'if ! pgrep -f "vite.*5173" >/dev/null; then nohup npm run dev -- --host 0.0.0.0 >/tmp/even-ptt-vite.log 2>&1 & fi; sleep 3; if ! pgrep -f "evenhub-simulator" >/dev/null; then nohup npm run sim:headless >/tmp/even-ptt-simulator.log 2>&1 & fi'",
   "customizations": { "vscode": { "settings": { "terminal.integrated.defaultProfile.linux": "bash" } } }
 }
