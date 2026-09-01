@@ -25,5 +25,10 @@
       }
     }
   },
-  "postStartCommand": "bash -lc 'if ! pgrep -f \"[v]ite\" >/dev/null; then nohup npm run dev -- --host 0.0.0.0 >/tmp/even-ptt-vite.log 2>&1 & fi; if ! pgrep -f \"[e]venhub-simulator\" >/dev/null; then sleep 3; nohup npm run sim:headless >/tmp/even-ptt-simulator.log 2>&1 & fi'"
+  "postStartCommand": "bash -lc 'if ! pgrep -f \"[v]ite\" >/dev/null; then nohup npm run dev -- --host 0.0.0.0 >/tmp/even-ptt-vite.log 2>&1 & fi; if ! pgrep -f \"[e]venhub-simulator\" >/dev/null; then sleep 3; nohup npm run sim:headless >/tmp/even-ptt-simulator.log 2>&1 & fi'",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    }
+  }
 }
