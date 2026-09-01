@@ -480,9 +480,9 @@ function textColumns(text: string): number {
   return Array.from(text).reduce((sum, char) => sum + characterColumns(char), 0)
 }
 
-function wrapReplyContent(content: string, maxColumns = 50): string[] {
+function wrapReplyContent(content: string, maxColumns = 36): string[] {
   const lines: string[] = []
-  const indent = '　　'
+  // 此欄實際可容納約 36 個全／半形欄位（含兩個全形縮排）；不可交給裝置再換行。\n  const indent = '　　'
   for (const sourceLine of content.split('\n')) {
     let current = indent
     let used = 4
