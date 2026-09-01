@@ -392,8 +392,9 @@ async function imageToEvenPng(url: string): Promise<Uint8Array> {
 
     const pixels = context.getImageData(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT)
     for (let index = 0; index < pixels.data.length; index += 4) {
-      // 8 階灰階兼顧照片細節與藍牙傳輸速度。
-      const gray = Math.round((pixels.data[index] * 0.299 + pixels.data[index + 1] * 0.587 + pixels.data[index + 2] * 0.114) / 36) * 36
+      // 32 階灰階，保留更多照片層次。
+      const luminance = pixels.data[index] * 0.299 + pixels.data[index + 1] * 0.587 + pixels.data[index + 2] * 0.114
+      const gray = Math.round(Math.round(luminance / (255 / 31)) * (255 / 31))
       pixels.data[index] = gray
       pixels.data[index + 1] = gray
       pixels.data[index + 2] = gray
