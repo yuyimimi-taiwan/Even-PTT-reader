@@ -35,7 +35,7 @@ const BOARD_STORE = 'even-ptt-reader-boards-v1'
 const ROWS = 9
 const LIKE_WIDTH = 3
 // 以中文最寬字形計算，避免任何一列自動換行。
-const TITLE_WIDTH = 22
+const TITLE_WIDTH = 34
 const TIME_WIDTH = 5
 
 let articles: Article[] = []
@@ -271,12 +271,34 @@ function clip(text: string, width: number): string {
   return text.length > width ? `${text.slice(0, width - 1)}…` : text
 }
 
+function characterColumns(char: string): number {
+  return char.codePointAt(0)! > 0xff ? 2 : 1
+}
+function takeColumns(text: string, maxColumns: number): string {
+  let output = ''
+  let used = 0
+  for (const char of text) {
+    const width = characterColumns(char)
+    if (used + width > maxColumns) break
+    output += char
+    used += width
+  }
+  return output
+}
 function marquee(text: string, width: number): string {
-  if (text.length <= width) return text
-  const loop = `${text}     `
-  const doubled = loop + loop
+  if (textColumns(text) <= width) return text
+  const loop = Array.from(`${text}     `)
   const start = marqueeOffset % loop.length
-  return doubled.slice(start, start + width)
+  let output = ''
+  let used = 0
+  for (let index = 0; index < loop.length * 2; index += 1) {
+    const char = loop[(start + index) % loop.length]
+    const charWidth = characterColumns(char)
+    if (used + charWidth > width) break
+    output += char
+    used += charWidth
+  }
+  return output
 }
 
 function textPages(text: string, maxBytes: number): string[] {
@@ -314,8 +336,8 @@ function displayLikes(value: string): string {
 }
 
 function listTitle(text: string): string {
-  // 列表不顯示省略號，以固定字數直接截斷，保留單行排版。
-  return text.slice(0, TITLE_WIDTH)
+  // 依實際欄位寬度截斷：中文全形 2 格、英文半形 1 格。
+  return takeColumns(text, TITLE_WIDTH)
 }
 
 function renderTitleColumn(): void {
@@ -455,7 +477,7 @@ async function openArticle(): Promise<void> {
 }
 
 function textColumns(text: string): number {
-  return Array.from(text).reduce((sum, char) => sum + (char.codePointAt(0)! > 0xff ? 2 : 1), 0)
+  return Array.from(text).reduce((sum, char) => sum + characterColumns(char), 0)
 }
 
 function wrapReplyContent(content: string, maxColumns = 34): string[] {
@@ -704,7 +726,7 @@ bridge.onEvenHubEvent((event) => {
 })
 
 setInterval(() => {
-  if (page === 'list' && articles[selected]?.title.length > TITLE_WIDTH) {
+  if (page === 'list' && textColumns(articles[selected]?.title || '') > TITLE_WIDTH) {
     marqueeOffset += 1
     renderTitleColumn()
   }
