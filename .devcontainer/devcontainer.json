@@ -1,11 +1,29 @@
 {
   "name": "Even PTT Reader Simulator",
-  "build": { "dockerfile": "Dockerfile" },
-  "forwardPorts": [5173, 9898],
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "forwardPorts": [
+    5173,
+    9898
+  ],
   "portsAttributes": {
-    "5173": { "label": "PTT Reader phone webview", "onAutoForward": "notify" },
-    "9898": { "label": "Even simulator control and screenshots", "onAutoForward": "notify" }
+    "5173": {
+      "label": "PTT Reader phone webview",
+      "onAutoForward": "notify"
+    },
+    "9898": {
+      "label": "Even simulator control and screenshots",
+      "onAutoForward": "notify"
+    }
   },
   "postCreateCommand": "npm install && sudo npm install -g @evenrealities/evenhub-cli @evenrealities/evenhub-simulator",
-  "customizations": { "vscode": { "settings": { "terminal.integrated.defaultProfile.linux": "bash" } } }
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  },
+  "postStartCommand": "bash -lc 'if ! pgrep -f \"[v]ite\" >/dev/null; then nohup npm run dev -- --host 0.0.0.0 >/tmp/even-ptt-vite.log 2>&1 & fi; if ! pgrep -f \"[e]venhub-simulator\" >/dev/null; then sleep 3; nohup npm run sim:headless >/tmp/even-ptt-simulator.log 2>&1 & fi'"
 }
