@@ -421,14 +421,56 @@ async function imageToEvenPng(url: string): Promise<Uint8Array[]> {
     context.drawImage(image, x, y, width, height)
 
     const pixels = context.getImageData(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT)
-    for (let index = 0; index < pixels.data.length; index += 4) {
-      // 256 階灰階，保留原始亮度層次。
-      const luminance = pixels.data[index] * 0.299 + pixels.data[index + 1] * 0.587 + pixels.data[index + 2] * 0.114
-      const gray = Math.round(luminance)
-      pixels.data[index] = gray
-      pixels.data[index + 1] = gray
-      pixels.data[index + 2] = gray
-      pixels.data[index + 3] = 255
+    const luminance = new Float32Array(IMAGE_WIDTH * IMAGE_HEIGHT)
+    const histogram = new Uint32Array(256)
+    for (let pixel = 0; pixel < luminance.length; pixel += 1) {
+      const index = pixel * 4
+      const value = pixels.data[index] * 0.299 + pixels.data[index + 1] * 0.587 + pixels.data[index + 2] * 0.114
+      luminance[pixel] = value
+      histogram[Math.round(value)] += 1
+    }
+
+    // 忽略最亮／最暗各 2% 的離群值，再把其餘亮度拉滿，避免照片在 16 階螢幕上發灰。
+    const percentile = (ratio: number): number => {
+      const target = Math.floor(luminance.length * ratio)
+      let total = 0
+      for (let value = 0; value < histogram.length; value += 1) {
+        total += histogram[value]
+        if (total >= target) return value
+      }
+      return 255
+    }
+    const blackPoint = percentile(0.02)
+    const whitePoint = Math.max(blackPoint + 1, percentile(0.98))
+    const sharpened = new Float32Array(luminance.length)
+    for (let y = 0; y < IMAGE_HEIGHT; y += 1) {
+      for (let x = 0; x < IMAGE_WIDTH; x += 1) {
+        const pixel = y * IMAGE_WIDTH + x
+        const center = luminance[pixel]
+        const left = luminance[y * IMAGE_WIDTH + Math.max(0, x - 1)]
+        const right = luminance[y * IMAGE_WIDTH + Math.min(IMAGE_WIDTH - 1, x + 1)]
+        const up = luminance[Math.max(0, y - 1) * IMAGE_WIDTH + x]
+        const down = luminance[Math.min(IMAGE_HEIGHT - 1, y + 1) * IMAGE_WIDTH + x]
+        const blur = (center * 4 + left + right + up + down) / 8
+        sharpened[pixel] = center + (center - blur) * 0.55
+      }
+    }
+    // 4 × 4 Bayer 抖動保留中間色的視覺層次；輸出已先限制在眼鏡的 16 階。
+    const bayer4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]
+    for (let y = 0; y < IMAGE_HEIGHT; y += 1) {
+      for (let x = 0; x < IMAGE_WIDTH; x += 1) {
+        const pixel = y * IMAGE_WIDTH + x
+        const normalized = Math.max(0, Math.min(1, (sharpened[pixel] - blackPoint) / (whitePoint - blackPoint)))
+        // 略提亮中間調，讓人像與暗部在綠色顯示上更可辨識。
+        const gammaCorrected = Math.pow(normalized, 0.82)
+        const dither = (bayer4[(y % 4) * 4 + (x % 4)] - 7.5) / 16
+        const gray = Math.max(0, Math.min(255, Math.round(Math.max(0, Math.min(15, Math.round(gammaCorrected * 15 + dither))) * 17)))
+        const index = pixel * 4
+        pixels.data[index] = gray
+        pixels.data[index + 1] = gray
+        pixels.data[index + 2] = gray
+        pixels.data[index + 3] = 255
+      }
     }
     context.putImageData(pixels, 0, 0)
     const encoded: Uint8Array[] = []
