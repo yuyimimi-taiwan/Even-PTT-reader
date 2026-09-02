@@ -84,9 +84,12 @@ function readBoards(): Board[] {
   } catch { /* 預設 */ }
   return [...DEFAULT_BOARDS]
 }
-function saveBoards(next: Board[]): void {
+async function saveBoards(next: Board[]): Promise<void> {
   boards = next.length ? next : [...DEFAULT_BOARDS]
   try { localStorage.setItem(BOARD_STORE, JSON.stringify(boards)) } catch { /* 本次仍可用 */ }
+  // 瀏覽器 localStorage 在 Even Hub WebView 重開後不一定保留；以 Even App
+  // 提供的持久儲存為準，資料會保存於手機上的 Even Hub。
+  try { await bridge.setLocalStorage(BOARD_STORE, JSON.stringify(boards)) } catch { /* 開發瀏覽器仍可用 */ }
   void publishBoardsForSimulator()
 }
 
@@ -100,7 +103,7 @@ function decodeSharedBoards(value: unknown): Board[] | undefined {
 }
 
 // Codespaces 的手機瀏覽器與模擬器是不同 WebView；開發時以 Vite 暫存同步。
-// 正式安裝時端點不存在，仍會使用本機 localStorage。
+// 正式安裝時端點不存在，設定則交由 Even App 的持久儲存。
 async function publishBoardsForSimulator(): Promise<void> {
   try {
     await fetch('/api/boards', {
@@ -118,11 +121,21 @@ async function syncBoardsFromDevelopmentServer(): Promise<void> {
     if (!next || JSON.stringify(next) === JSON.stringify(boards)) return
     boards = next
     try { localStorage.setItem(BOARD_STORE, JSON.stringify(boards)) } catch { /* 本次仍可用 */ }
+    try { await bridge.setLocalStorage(BOARD_STORE, JSON.stringify(boards)) } catch { /* 僅限開發環境 */ }
     if (page === 'home') renderHome()
   } catch { /* 非開發環境不需要 */ }
 }
 
+async function restoreBoardsFromEvenApp(): Promise<void> {
+  try {
+    const stored = await bridge.getLocalStorage(BOARD_STORE)
+    const restored = decodeSharedBoards(JSON.parse(stored || '[]'))
+    if (restored) boards = restored
+  } catch { /* 第一次使用或舊版 Even Hub 沒有資料時使用預設看板 */ }
+}
+
 const bridge = await waitForEvenAppBridge()
+await restoreBoardsFromEvenApp()
 await syncBoardsFromDevelopmentServer()
 void publishBoardsForSimulator()
 
@@ -900,7 +913,7 @@ function setupPhoneSettings(): void {
     const form = document.createElement('form')
     form.className = 'add-board'
     form.innerHTML = '<h2>新增 PTT 看板</h2><input name="name" maxlength="30" required placeholder="顯示名稱，例如：棒球版"><input name="url" required inputmode="url" placeholder="PTT 看板網址，例如 https://www.ptt.cc/bbs/Baseball/index.html"><button>加入看板</button>'
-    form.addEventListener('submit', (event) => {
+    form.addEventListener('submit', async (event) => {
       event.preventDefault()
       const data = new FormData(form)
       const name = String(data.get('name') || '').trim()
@@ -909,7 +922,7 @@ function setupPhoneSettings(): void {
         alert('請輸入 PTT 看板網址，例如 https://www.ptt.cc/bbs/Baseball/index.html')
         return
       }
-      saveBoards([...boards, { name, url }])
+      await saveBoards([...boards, { name, url }])
       boardSelected = boards.length - 1
       if (page === 'home') renderHome()
       draw()
@@ -932,8 +945,8 @@ function setupPhoneSettings(): void {
       const remove = document.createElement('button')
       remove.type = 'button'
       remove.textContent = '移除'
-      remove.addEventListener('click', () => {
-        saveBoards(boards.filter((_, itemIndex) => itemIndex !== index))
+      remove.addEventListener('click', async () => {
+        await saveBoards(boards.filter((_, itemIndex) => itemIndex !== index))
         boardSelected = Math.min(boardSelected, boards.length - 1)
         if (page === 'home') renderHome()
         draw()
