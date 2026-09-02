@@ -421,24 +421,14 @@ async function imageToEvenPng(url: string): Promise<Uint8Array[]> {
     context.drawImage(image, x, y, width, height)
 
     const pixels = context.getImageData(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT)
-    // Even Hub 的內嵌 WebView 對大量中介緩衝區相容性不一；改成單次處理，
-    // 仍保留適合 16 階螢幕的對比、提亮與抖動，避免圖片頁中斷。
-    const bayer4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]
-    for (let y = 0; y < IMAGE_HEIGHT; y += 1) {
-      for (let x = 0; x < IMAGE_WIDTH; x += 1) {
-        const pixel = y * IMAGE_WIDTH + x
-        const index = pixel * 4
-        const luminance = pixels.data[index] * 0.299 + pixels.data[index + 1] * 0.587 + pixels.data[index + 2] * 0.114
-        // 提升約 28% 對比，再略提亮中間調，讓文字與暗部更清楚。
-        const normalized = Math.max(0, Math.min(1, ((luminance / 255) - 0.5) * 1.28 + 0.5))
-        const gammaCorrected = Math.pow(normalized, 0.82)
-        const dither = (bayer4[(y % 4) * 4 + (x % 4)] - 7.5) / 16
-        const gray = Math.max(0, Math.min(255, Math.round(Math.max(0, Math.min(15, Math.round(gammaCorrected * 15 + dither))) * 17)))
-        pixels.data[index] = gray
-        pixels.data[index + 1] = gray
-        pixels.data[index + 2] = gray
-        pixels.data[index + 3] = 255
-      }
+    for (let index = 0; index < pixels.data.length; index += 4) {
+      // 保留完整灰階資料，交由 Even SDK 做實機顯示轉換。
+      const luminance = pixels.data[index] * 0.299 + pixels.data[index + 1] * 0.587 + pixels.data[index + 2] * 0.114
+      const gray = Math.round(luminance)
+      pixels.data[index] = gray
+      pixels.data[index + 1] = gray
+      pixels.data[index + 2] = gray
+      pixels.data[index + 3] = 255
     }
     context.putImageData(pixels, 0, 0)
     const encoded: Uint8Array[] = []
