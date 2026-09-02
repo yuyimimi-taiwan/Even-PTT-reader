@@ -847,6 +847,9 @@ bridge.onEvenHubEvent((event) => {
     } else if (input.eventType === OsEventTypeList.SCROLL_BOTTOM_EVENT && boardSelected < boards.length - 1) {
       boardSelected += 1
       renderHome()
+    } else if (input.eventType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
+      // 根頁雙擊交給系統顯示離開確認；不在閱讀頁觸發，避免閱讀時誤退。
+      void bridge.shutDownPageContainer(1)
     } else if (input.eventType === OsEventTypeList.CLICK_EVENT || input.eventType === undefined) {
       void openSelectedBoard()
     }
